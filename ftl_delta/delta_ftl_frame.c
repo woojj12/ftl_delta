@@ -1,3 +1,10 @@
+//사용법
+//기본적으로 제공되는 함수(read write open등)가 맨 위에고 그 밑에 함수명 리스트를 적고, 그 다음 똑같은 순서로 함수명을 다시 적은뒤 그 함수들을 코딩하자
+//
+//함수 작성 완료되면 함수 정의부분의 주석에 "complte" 추가하자
+
+
+
 ftl_read()
 {
   if(is_in_write_buffer())	//is in write buffer?
