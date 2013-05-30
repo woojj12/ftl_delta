@@ -38,12 +38,13 @@ ftl_read()
   if(is_in_write_buffer())	//is in write buffer?
 	{
 		//버퍼 내용 리턴
+		//slru cache?
 		return;
 	}
 	if(is_in_cache())			//is in cache?
 	{
 		//find ppn in cache
-		//pop and push in first slru(protected) slot
+		
 		load_original_data();		//load original data
 		
 		if(have_delta())		//is the ppn has delta?
@@ -53,17 +54,17 @@ ftl_read()
 			if(in_protected_region())	//was ppn in slru protected region (before pop)
 			{
 				merge();		//write merge data
-				return;
 			}
 			else
 			{
-				return;
+				;
 			}
 		}
 		else
 		{
-			return;
+			;
 		}
+		//pop and push in first slru(protected) slot
 	}
 	else						//not in cache
 	{
@@ -71,6 +72,8 @@ ftl_read()
 		//pop and push in first slru(probational) slot
 		load_original_data();	//load original data
 	}
+	
+	return;
 }
 
 is_in_write_buffer();		//is in write buffer?
@@ -109,6 +112,7 @@ ftl_write()
 	if(is_in_write_buffer())	//is in write buffer?
 	{
 		//버퍼 내용 수정 후 리턴
+		//slru cache?
 		return;
 	}
 	else
@@ -123,20 +127,18 @@ evict()					//write(not in write buffer)
 	if(is_in_cache())		//is in cache?
 	{
 		//find ppn in cache
-		//pop and push in first slru(protected) slot
 		load_original_data();		//load original data
 		if(in_protected_region())	//was ppn in slru protected region (before pop)
 		{
 			//XOR
 			if(write_to_delta() != NULL)	//write to delta write buffer
 			{
-				return;
+				;
 			}
 			else				//write to delta fail
 			{
 				get_free_page();	//get free page
 				save_original_data();	//save original data
-				return;
 			}
 		}
 		else
@@ -144,16 +146,21 @@ evict()					//write(not in write buffer)
 			get_free_page();		//get free page
 			save_original_data();		//save original data
 		}
+		
+		//pop and push in first slru(protected) slot
+		
 	}
 	else				//not in cache
 	{
 		//find ppn in page and make cache node
-		//pop and push in first slru(probational) slot
+		
 		load_original_data();			//load original data
 		get_free_page();			//get free page
 		save_original_data();			//save original data
 
+		//pop and push in first slru(probational) slot
 	}
+	
 }
 
 write_to_delta()	//write to delta write buffer
