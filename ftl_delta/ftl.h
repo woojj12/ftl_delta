@@ -41,9 +41,11 @@
 #define NUM_COPY_BUFFERS	NUM_BANKS_MAX
 #define NUM_FTL_BUFFERS		NUM_BANKS
 #define NUM_HIL_BUFFERS		1
-#define NUM_TEMP_BUFFERS	2
+#define NUM_TEMP_BUFFERS	3
+#define NUM_DELTA_BUFFERS	1
+#define NUM_LPN_BUFFERS		NUM_BANKS
 
-#define DRAM_BYTES_OTHER	((NUM_COPY_BUFFERS + NUM_FTL_BUFFERS + NUM_HIL_BUFFERS + NUM_TEMP_BUFFERS) * BYTES_PER_PAGE + BAD_BLK_BMP_BYTES \
+#define DRAM_BYTES_OTHER	((NUM_LPN_BUFERS + NUM_COPY_BUFFERS + NUM_FTL_BUFFERS + NUM_HIL_BUFFERS + NUM_TEMP_BUFFERS + NUM_DELTA_BUFFERS) * BYTES_PER_PAGE + BAD_BLK_BMP_BYTES \
                              + FTL_BMT_BYTES)
 
 #define WR_BUF_PTR(BUF_ID)	(WR_BUF_ADDR + ((UINT32)(BUF_ID)) * BYTES_PER_PAGE)
@@ -56,6 +58,10 @@
 #define _COPY_BUF(RBANK)	(COPY_BUF_ADDR + (RBANK) * BYTES_PER_PAGE)
 #define COPY_BUF(BANK)		_COPY_BUF(REAL_BANK(BANK))
 #define FTL_BUF(BANK)       (FTL_BUF_ADDR + ((BANK) * BYTES_PER_PAGE))
+
+#define DELTA_BUF(BANK)		(DELTA_BUF_ADDR + ((BANK) * BYTES_PER_PAGE))
+
+#define LPN_BUF(BANK)		(LPN_BUF_ADDR + ((BANK) * BYTES_PER_PAGE))
 
 ///////////////////////////////
 // DRAM segmentation
@@ -79,17 +85,16 @@
 #define TEMP_BUF_ADDR		(HIL_BUF_ADDR + HIL_BUF_BYTES)					// general purpose buffer
 #define TEMP_BUF_BYTES		(NUM_TEMP_BUFFERS * BYTES_PER_PAGE)
 
-#define BAD_BLK_BMP_ADDR	(TEMP_BUF_ADDR + TEMP_BUF_BYTES)				// bitmap of initial bad blocks
+#define DELTA_BUF_ADDR		(TEMP_BUF_ADDR + TEMP_BUF_BYTES)
+#define DELTA_BUF_BYTES		(NUM_DELTA_BUFFERS * BYTES_PER_PAGE)
+
+#define LPN_BUF_ADDR		(DELTA_BUF_ADDR + DELTA_BUF_BYTES)
+#define LPN_BUF_BYTES		(NUM_LPN_BUFFERS * BYTES_PER_PAGE)
+
+#define BAD_BLK_BMP_ADDR	(LPN_BUF_ADDR + LPN_BUF_BYTES)				// bitmap of initial bad blocks
 #define BAD_BLK_BMP_BYTES	(((NUM_VBLKS / 8) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 
 /******** FTL metadata ********/
-
-// static hash library for FASTer FTL
-//#include "shashtbl.h"
-
-//#define HASH_BUCKET_SIZE    ((LOG_BLK_PER_BANK * PAGES_PER_BLK) >> 2)
-//#define HASH_NODE_BYTES_PER_BANK ((LOG_BLK_PER_BANK + ISOL_BLK_PER_BANK) * PAGES_PER_BLK * sizeof(hashnode))
-//#define HASH_BUCKET_BYTES_PER_BANK (HASH_BUCKET_SIZE * sizeof(hashnode_ptr))
 
 //------------------------------
 // 1. address mapping information
@@ -108,67 +113,17 @@
 
 // total BMT bytes
 // JJ
-//#define FTL_BMT_BYTES       ((DATA_BMT_BYTES + LOG_BMT_BYTES + ISOL_BMT_BYTES + FREE_BMT_BYTES + BYTES_PER_SECTOR - 1) / BYTES_PER_SECTOR * BYTES_PER_SECTOR)
 #define FTL_BMT_BYTES       ((DATA_PMT_BYTES + DELTA_PMT_BYTES + RSRV_BMT_BYTES + BYTES_PER_SECTOR - 1) / BYTES_PER_SECTOR * BYTES_PER_SECTOR)
 
 // data block mapping table
 // JJ
-//#define NUM_DATA_BLK        ((NUM_LPAGES + PAGES_PER_BLK - 1) / PAGES_PER_BLK)
-/*
-#define DATA_BLK_PER_BANK   ((NUM_DATA_BLK + NUM_BANKS - 1) / NUM_BANKS)
-#define DATA_BMT_ADDR       (BAD_BLK_BMP_ADDR + BAD_BLK_BMP_BYTES)
-#define DATA_BMT_BYTES      ((NUM_BANKS * DATA_BLK_PER_BANK * sizeof(UINT16) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-*/
-
 #define NUM_RSRV_BLK			((NUM_RSRV_BLK + NUM_BANKS - 1) / NUM_BANKS)
 //initially, all data blks are rsrv blk
 #define RSRV_BLK_PER_BANK	(VBLKS_PER_BANK - 1 - 1 - MAP_BLK_PER_BANK)
 #define RSRV_BMT_ADDR		(DELTA_PMT_ADDR + DELTA_PMT_BYTES)
 #define RSRV_BMT_BYTES      ((NUM_BANKS * RSRV_BLK_PER_BANK * sizeof(UINT16) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 
-/*
-// log page mapping table (static hash structure)
-#define HASH_BUCKET_ADDR (RSRV_BMT_ADDR + RSRV_BMT_BYTES)
-#define HASH_BUCKET_BYTES ((NUM_BANKS * HASH_BUCKET_BYTES_PER_BANK + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-
-#define HASH_NODE_ADDR (HASH_BUCKET_ADDR + HASH_BUCKET_BYTES)
-#define HASH_NODE_BYTES ((NUM_BANKS * HASH_NODE_BYTES_PER_BANK + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-
-//--------------------------------------
-// 2. additional FTL metadata
-//--------------------------------------
-// validation check bitmap table
-//
-// NOTE;
-//   - To figure out that the valid page of target LPN is in log blocks or not , we just check this bit information.
-//     If the bit of target LPN is set, we can obviously know the up-to-date data is existed in log blocks despite not acessing log page mapping table.
-//
-
-#define VC_BITMAP_ADDR		(HASH_NODE_ADDR + HASH_NODE_BYTES)
-#define VC_BITMAP_BYTES		(((NUM_BANKS * DATA_BLK_PER_BANK * PAGES_PER_BLK / 8) + BYTES_PER_SECTOR - 1) / BYTES_PER_SECTOR * BYTES_PER_SECTOR)
-
-// second chance bitmap table
-#define SC_BITMAP_ADDR      (VC_BITMAP_ADDR + VC_BITMAP_BYTES)
-#define SC_BITMAP_BYTES     (((NUM_BANKS * LOG_BLK_PER_BANK * PAGES_PER_BLK / 8) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-
-// block wear-out count for explicit wear-leveling
-#define BLK_ERASE_CNT_ADDR  (SC_BITMAP_ADDR + SC_BITMAP_BYTES)
-#define BLK_ERASE_CNT_BYTES ((NUM_BANKS * VBLKS_PER_BANK * sizeof(UINT32) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-*/
-
 // non-volatile metadata structure (SRAM)
-/*
-typedef struct _ftl_statistics
-{
-    UINT32 gc_cnt;
-    UINT32 total_hostwrite_cnt; // page-level
-    UINT32 total_erase_cnt;
-    UINT32 total_write_cnt;
-    UINT32 total_cpback_cnt;
-    UINT32 total_read_cnt;
-}ftl_statistics;
-*/
-
 typedef struct _misc_metadata
 {
     UINT32 cur_miscblk_vpn; // vblock #1 (fixed block)
@@ -177,33 +132,6 @@ typedef struct _misc_metadata
     UINT32 rsrv_blk_cnt;
     UINT32 rsrv_list_head;
     UINT32 rsrv_list_tail;
-    //UINT32 free_blk_cnt;
-    //UINT32 free_list_head;
-    //UINT32 free_list_tail;
-
-    /*
-    UINT32 cur_write_swlog_offset;
-    UINT32 swlog_data_lbn; // assigned data lbn for sw log block
-    UINT32 corr_ref[2]; // correlated reference (for sequential write detection)
-
-    UINT32 actual_rwlogblk_num;
-    UINT32 cur_write_rwlog_lpn;
-    UINT32 cur_write_isol_lpn;
-    UINT32 cur_vt_isol_lpn;
-    UINT32 rwlog_free_blk_cnt;
-    UINT32 isol_free_blk_cnt;
-
-    /*
-    // for progressive merge to provide uniform reponse time and performance flucatuation
-    UINT32 write_before_pmerge;
-    UINT32 pmerge_trigger;
-    UINT32 pmerge_interval;
-    UINT32 base_pmerge_interval;
-
-    UINT32 lpn_list_of_rwlog_blk[PAGES_PER_BLK];    // read lpn list from last page of block to merge/gc
-    UINT32 lpn_list_of_cur_isol_blk[PAGES_PER_BLK]; // logging lpn list of current isol blk
-    UINT32 lpn_list_of_vt_isol_blk[PAGES_PER_BLK];  // read lpn list of victim isol blk
-    */
 }misc_metadata; // per bank
 
 ///////////////////////////////
