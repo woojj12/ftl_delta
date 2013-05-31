@@ -33,6 +33,56 @@ put_delta();			//put delta data in delta_write_buffer
 //functions
 //read stream function
 
+UINT32 g_next_free_page[bank];
+
+UINT32 get_free_page(bank)
+{
+	//ftl_open 할 때
+	//free block 하나 잡아서 g_next_free_page 세팅 해줘야 함
+
+	g_next_free_page[bank]++;
+
+	//if(g_next_free_page[bank] == 블록의 마지막 페이지)
+	if((g_next_free_page[bank]+1) % PAGES_PER_BLK == 0)
+	{
+		nand_page_program(bank, g_next_free_page / PAGES_PER_BLK, PAGES_PER_BLK - 1, LPN_BUF(bank));
+		
+		UINT32 pbn = get_rsrv_pbn(bank);
+		g_next_free_page[bank] = pbn * PAGES_PER_BLK;
+		/*
+		버퍼 하나 잡아서
+		g_lpns_current_blk[bank] 카피
+		write to nand(버퍼, g_next_free_page[bank])
+	
+		get_rsrv_vbn[bank];
+
+		g_next_free_page[bank] = 새로 가져온 블락의 첫 페이지
+		*/
+	}
+	
+	return g_next_free_page[bank];
+}
+
+UINT32 set_valid_PPA(UINT32 PPA)
+{
+	return 0x7fff & PPA_delta;
+}
+
+UINT32 set_invalid_PPA(UINT32 PPA)
+{
+	return 0x8000 & PPA_delta;
+}
+
+BOOL32 is_valid_PPA(UINT32 PPA)
+{
+	if(0x8000 & PPA)
+	{
+		return FALSE;
+	}
+	else
+		return TRUE;
+}
+
 static void format(void)
 {
     uart_printf("Total FTL DRAM metadata size: %d KB", DRAM_BYTES_OTHER / 1024);
@@ -125,6 +175,36 @@ static void format(void)
     write_format_mark();
 	led(1);
     uart_print("format complete");
+}
+
+static void init_metadata_sram(void)
+{
+    for (UINT32 bank = 0; bank < NUM_BANKS; bank++) {
+        set_miscblk_vpn(bank, (MISCBLK_VBN * PAGES_PER_BLK) - 1);
+
+		UINT32 pbn = get_rsrv_pbn(bank);
+		g_next_free_page[bank] = pbn * PAGES_PER_BANK;
+    }
+}
+static UINT32 get_rsrv_pbn(UINT32 const bank)
+{
+    ASSERT(g_misc_meta[bank].rsrv_blk_cnt > 0);
+
+    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_tail;
+    g_misc_meta[bank].rsrv_list_tail = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
+    g_misc_meta[bank].rsrv_blk_cnt--;
+    return read_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16));
+}
+static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)
+{
+    ASSERT(g_misc_meta[bank].rsrv_blk_cnt <= RSRV_BLK_PER_BANK);
+    ASSERT(vblock < VBLKS_PER_BANK);
+    ASSERT(is_bad_block(bank, vblock) == FALSE);
+
+    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_head;
+    write_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16), vblock);
+    g_misc_meta[bank].rsrv_list_head = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
+    g_misc_meta[bank].rsrv_blk_cnt++;
 }
 
 ftl_read()
