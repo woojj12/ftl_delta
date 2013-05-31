@@ -48,9 +48,7 @@
 //----------------------------------
 // FTL metadata (maintain in SRAM)
 //----------------------------------
-extern SHASHTBL       g_shashtbl[NUM_BANKS]; // ../target_spw/shashtbl.c
 static misc_metadata  g_misc_meta[NUM_BANKS];
-static ftl_statistics g_ftl_statistics[NUM_BANKS];
 // volatile metadata
 static UINT32		  g_bad_blk_count[NUM_BANKS];
 static BOOL32         g_bsp_isr_flag[NUM_BANKS];
@@ -1794,26 +1792,6 @@ static void garbage_collection(UINT32 const bank)
 
     g_gc_flag[bank] = TRUE;
     /* uart_print("garbage_collection end"); */
-}
-static UINT32 get_free_vbn(UINT32 const bank)
-{
-    ASSERT(g_misc_meta[bank].free_blk_cnt > 0);
-
-    UINT32 free_blk_offset = g_misc_meta[bank].free_list_tail;
-    g_misc_meta[bank].free_list_tail = (free_blk_offset + 1) % FREE_BLK_PER_BANK;
-    g_misc_meta[bank].free_blk_cnt--;
-    return read_dram_16(FREE_BMT_ADDR + ((bank * FREE_BLK_PER_BANK)+ free_blk_offset) * sizeof(UINT16));
-}
-static void ret_free_vbn(UINT32 const bank, UINT32 const vblock)
-{
-    ASSERT(g_misc_meta[bank].free_blk_cnt <= FREE_BLK_PER_BANK);
-    ASSERT(vblock < VBLKS_PER_BANK);
-    ASSERT(is_bad_block(bank, vblock) == FALSE);
-
-    UINT32 free_blk_offset = g_misc_meta[bank].free_list_head;
-    write_dram_16(FREE_BMT_ADDR + ((bank * FREE_BLK_PER_BANK)+ free_blk_offset) * sizeof(UINT16), vblock);
-    g_misc_meta[bank].free_list_head = (free_blk_offset + 1) % FREE_BLK_PER_BANK;
-    g_misc_meta[bank].free_blk_cnt++;
 }
 // get data vbn from data block mapping table
 static UINT32 get_data_vbn(UINT32 const bank, UINT32 const data_lbn)
