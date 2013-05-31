@@ -3,9 +3,21 @@
 //
 //함수 작성 완료되면 함수 정의부분의 주석에 "complte" 추가하자
 
+#define MAX_COMPRESS_SIZE	(BYTES_PER_PAGE / 2)//2048				//MAX COMPRESS SIZE : 2K(50%)
+#define META_COUNT			10
+#define MIN_RSRV_BLK		5
 
+#define get_pbn(ppn)		((ppn) / PAGES_PER_BLK)
+#define get_offset(ppn)		((ppn) % PAGES_PER_BLK)
+
+UINT32 next_delta_offset[bank];						//next delta offset
+UINT32 next_delta_meta[bank];						//next delta metadata
+UINT32 g_next_free_page[bank];
 
 //function list
+static void format(void);
+static void init_metadata_sram(void);
+
 //read stream function
 ftl_read();
 is_in_write_buffer();		//is in write buffer?
@@ -28,60 +40,20 @@ _lzf_compress();		//compress by lzf
 is_remain_delta_write_buffer();	//is remain in delta_write_buffer?
 put_delta();			//put delta data in delta_write_buffer
 
+//address related function
 
+UINT32 set_valid_PPA(UINT32 PPA);		//set valid PPA
+UINT32 set_invalid_PPA(UINT32 PPA);		//set invalid PPA
+BOOL32 is_valid_PPA(UINT32 PPA);		//is valid PPA?
+
+static UINT32 get_rsrv_pbn(UINT32 const bank);						//reserved block -> using block
+static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)	//gc block -> reserved block
 
 //functions
 //read stream function
 
-UINT32 g_next_free_page[bank];
 
-UINT32 get_free_page(bank)
-{
-	//ftl_open 할 때
-	//free block 하나 잡아서 g_next_free_page 세팅 해줘야 함
 
-	g_next_free_page[bank]++;
-
-	//if(g_next_free_page[bank] == 블록의 마지막 페이지)
-	if((g_next_free_page[bank]+1) % PAGES_PER_BLK == 0)
-	{
-		nand_page_program(bank, g_next_free_page / PAGES_PER_BLK, PAGES_PER_BLK - 1, LPN_BUF(bank));
-		
-		UINT32 pbn = get_rsrv_pbn(bank);
-		g_next_free_page[bank] = pbn * PAGES_PER_BLK;
-		/*
-		버퍼 하나 잡아서
-		g_lpns_current_blk[bank] 카피
-		write to nand(버퍼, g_next_free_page[bank])
-	
-		get_rsrv_vbn[bank];
-
-		g_next_free_page[bank] = 새로 가져온 블락의 첫 페이지
-		*/
-	}
-	
-	return g_next_free_page[bank];
-}
-
-UINT32 set_valid_PPA(UINT32 PPA)
-{
-	return 0x7fff & PPA_delta;
-}
-
-UINT32 set_invalid_PPA(UINT32 PPA)
-{
-	return 0x8000 & PPA_delta;
-}
-
-BOOL32 is_valid_PPA(UINT32 PPA)
-{
-	if(0x8000 & PPA)
-	{
-		return FALSE;
-	}
-	else
-		return TRUE;
-}
 
 static void format(void)
 {
@@ -186,26 +158,7 @@ static void init_metadata_sram(void)
 		g_next_free_page[bank] = pbn * PAGES_PER_BANK;
     }
 }
-static UINT32 get_rsrv_pbn(UINT32 const bank)
-{
-    ASSERT(g_misc_meta[bank].rsrv_blk_cnt > 0);
 
-    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_tail;
-    g_misc_meta[bank].rsrv_list_tail = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
-    g_misc_meta[bank].rsrv_blk_cnt--;
-    return read_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16));
-}
-static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)
-{
-    ASSERT(g_misc_meta[bank].rsrv_blk_cnt <= RSRV_BLK_PER_BANK);
-    ASSERT(vblock < VBLKS_PER_BANK);
-    ASSERT(is_bad_block(bank, vblock) == FALSE);
-
-    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_head;
-    write_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16), vblock);
-    g_misc_meta[bank].rsrv_list_head = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
-    g_misc_meta[bank].rsrv_blk_cnt++;
-}
 
 ftl_read()
 {
@@ -282,16 +235,9 @@ void read_from_delta(UINT32 const bank, UINT32 delta_ppn)		//read delta to temp1
 		buf_ptr = TEMP_BUF_PTR(0);
 	}
 	
-	delta_read_start = find_delta_data(2, delta_ppn);		//find delta data in temp_buffer;
+	delta_read_start = find_delta_data(TEMP_BUF_PTR(2), delta_ppn);		//find delta data in temp_buffer;
 	_lzf_decompress(delta_read_start, TEMP_BUF_PTR(1));
-/*
-//	UINT32 decomp;
-	decomp = _lzf_decompress(delta_read_start, TEMP_BUF_PTR(1));		//decompress data
-	if(decomp != PAGE_SIZE)
-	{
-		uart_printf("not decompressed!");
-	}
-*/
+
 	return;
 }
 
@@ -407,15 +353,16 @@ evict()					//write(not in write buffer)
 	
 }
 
-UINT32 write_to_delta(UINT32 delta_ppn)	//write to delta write buffer
+UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppn)	//write to delta write buffer
 {
 	UINT32 inv_delta = -1;
 	UINT32 cs;
 	UINT32 delta_page;
-	UINT32 bank;
+
+
 	if((cs = _lzf_compress(TEMP_BUF(2), TEMP_BUF(1))) <= MAX_COMPRESS_SIZE)			//try lzf compress and compressed
 	{
-		if(is_remain_delta_write_buffer(cs))	//is remain delta_write_buffer?
+		if(is_remain_delta_buffer(bank, cs))	//is remain delta_write_buffer?
 		{
 			inv_delta = find_delta_data(TEMP_BUF(1), delta_ppn);
 			if(inv_delta != -1)
@@ -438,10 +385,35 @@ UINT32 write_to_delta(UINT32 delta_ppn)	//write to delta write buffer
 		return -1;
 	}
 }
-get_free_page()		//get free page
-{
 
+UINT32 get_free_page(bank)				//get free page
+{
+	//ftl_open 할 때
+	//free block 하나 잡아서 g_next_free_page 세팅 해줘야 함
+
+	g_next_free_page[bank]++;
+
+	//if(g_next_free_page[bank] == 블록의 마지막 페이지)
+	if((g_next_free_page[bank]+1) % PAGES_PER_BLK == 0)
+	{
+		nand_page_program(bank, g_next_free_page / PAGES_PER_BLK, PAGES_PER_BLK - 1, LPN_BUF(bank));
+		
+		UINT32 pbn = get_rsrv_pbn(bank);
+		g_next_free_page[bank] = pbn * PAGES_PER_BLK;
+		/*
+		버퍼 하나 잡아서
+		g_lpns_current_blk[bank] 카피
+		write to nand(버퍼, g_next_free_page[bank])
+	
+		get_rsrv_vbn[bank];
+
+		g_next_free_page[bank] = 새로 가져온 블락의 첫 페이지
+		*/
+	}
+	
+	return g_next_free_page[bank];
 }
+
 save_original_data()	//write as original data
 {
 }
@@ -470,13 +442,13 @@ UINT32 _lzf_compress (const void *const in_data, void *out_data)
 	return cs;
 }
 
-UINT32 is_remain_delta_buffer(UINT32 cs);	//is remain in delta_buffer?
+UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs);	//is remain in delta_buffer?
 {
-	if((next_delta_offset + cs) > PAGE_SIZE)
+	if((next_delta_offset[bank] + cs) > PAGE_SIZE)
 	{
 		return 0;
 	}
-	if(next_delta_meta / (2 * sizeof(UINT32)) == META_COUNT)
+	if(next_delta_meta[bank] / (2 * sizeof(UINT32)) == META_COUNT)
 	{
 		return 0;
 	}
@@ -508,3 +480,53 @@ put_delta()			//put delta data in delta_buffer
 }
 
 
+
+
+
+
+UINT32 set_valid_PPA(UINT32 PPA)
+{
+	return 0x7fff & PPA_delta;
+}
+
+UINT32 set_invalid_PPA(UINT32 PPA)
+{
+	return 0x8000 & PPA_delta;
+}
+
+BOOL32 is_valid_PPA(UINT32 PPA)
+{
+	if(0x8000 & PPA)
+	{
+		return FALSE;
+	}
+	else
+		return TRUE;
+}
+
+
+static UINT32 get_rsrv_pbn(UINT32 const bank)
+{
+    ASSERT(g_misc_meta[bank].rsrv_blk_cnt > 0);
+
+    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_tail;
+    g_misc_meta[bank].rsrv_list_tail = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
+    g_misc_meta[bank].rsrv_blk_cnt--;
+	if(g_misc_meta[bank].rsrv_blk_cnt < MIN_RSRV_BLK)
+	{
+		//gc
+		ret_rsrv_pbn(bank, vblock)
+	}
+    return read_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16));
+}
+static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)
+{
+    ASSERT(g_misc_meta[bank].rsrv_blk_cnt <= RSRV_BLK_PER_BANK);
+    ASSERT(vblock < VBLKS_PER_BANK);
+    ASSERT(is_bad_block(bank, vblock) == FALSE);
+
+    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_head;
+    write_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16), vblock);
+    g_misc_meta[bank].rsrv_list_head = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
+    g_misc_meta[bank].rsrv_blk_cnt++;
+}
