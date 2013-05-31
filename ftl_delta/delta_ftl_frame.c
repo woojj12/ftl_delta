@@ -221,7 +221,7 @@ ftl_read()
 		
 		load_original_data();		//load original data
 		
-		if(is_valid_PPA())		//is the ppn has delta?
+		if(is_valid_PPA(ppa))		//is the ppn has delta?
 		{
 			read_from_delta();	//read delta to temp2 buffer(use temp, temp2 buffer)
 			//XOR operation
@@ -267,17 +267,19 @@ void read_from_delta(UINT32 const bank, UINT32 delta_ppn)		//read delta to temp1
 {
 	UINT32 delta_read_start;			//pointer(start of delta)
 	UINT32 pbn, offset;					//vbn of delta_ppn, offset of delta_ppn in vbn
+	UINT32 buf_ptr;
 
 	pbn = get_pbn(delta_ppn);
 	offset = get_offset(delta_ppn);
 
 	if(delta_ppn == NULL)
 	{
-		copy_to_temp_buffer(bank);	//copy from delta_buffer to temp_buffer2 (use temp1, temp2 buffer)
+		buf_ptr = DELTA_BUF(bank);
 	}
 	else
 	{
 		nand_page_read(bank, pbn, offset, TEMP_BUF_PTR(0));	//load from nand to temp_buffer
+		buf_ptr = TEMP_BUF_PTR(0);
 	}
 	
 	delta_read_start = find_delta_data(2, delta_ppn);		//find delta data in temp_buffer;
@@ -293,23 +295,18 @@ void read_from_delta(UINT32 const bank, UINT32 delta_ppn)		//read delta to temp1
 	return;
 }
 
-
-in_protected_region()		//was ppn in slru protected region (before pop)
+UINT32 in_protected_region();		//was ppn in slru protected region (before pop)
 {
 	return 0;
 }
-static inline void copy_to_temp_buffer(UINT32 bank);		//copy from delta_buffer to temp_buffer2
-{
-	mem_copy(TEMP_BUF_PTR(2), DELTA_BUF(bank), PAGE_SIZE);
-}
 
-UINT32 find_delta_data(UINT32 buf_num, UINT32 delta_ppn);		//find delta data in temp_buffer;
+UINT32 find_delta_data(UINT32 buf_ptr, UINT32 delta_ppn);		//find delta data in temp_buffer;
 {
 	UINT32 lpn, offset;
 	UINT32 i;
 	for(i = 0; i < META_COUNT; i++)
 	{
-		lpn = read_dram_32(TEMP_BUF_PTR(buf_num) + i * 2 * sizeof(UINT32));
+		lpn = read_dram_32(buf_ptr + i * 2 * sizeof(UINT32));
 		if(find_ppn(lpn) == delta_ppn)
 			break;
 	}
@@ -320,7 +317,7 @@ UINT32 find_delta_data(UINT32 buf_num, UINT32 delta_ppn);		//find delta data in 
 	}
 	else
 	{
-		return (TEMP_BUFFER + i * 2 * sizeof(UINT32));
+		return (buf_ptr + i * 2 * sizeof(UINT32));
 	}
 }
 
@@ -347,7 +344,6 @@ void _lzf_decompress (const void *const in_data, void *out_data)		//decompress d
 		exit(1);
 	}
 }
-
 
 
 
@@ -421,7 +417,7 @@ UINT32 write_to_delta(UINT32 delta_ppn)	//write to delta write buffer
 	{
 		if(is_remain_delta_write_buffer(cs))	//is remain delta_write_buffer?
 		{
-			inv_delta = find_delta_data(1, delta_ppn);
+			inv_delta = find_delta_data(TEMP_BUF(1), delta_ppn);
 			if(inv_delta != -1)
 			{
 				write_dram_32(inv_delta, -1);	//invalid prev delta
@@ -444,11 +440,11 @@ UINT32 write_to_delta(UINT32 delta_ppn)	//write to delta write buffer
 }
 get_free_page()		//get free page
 {
-	
+
 }
 save_original_data()	//write as original data
 {
-	
+}
 UINT32 _lzf_compress (const void *const in_data, void *out_data)
 {
 	UINT32 i;
@@ -489,7 +485,7 @@ UINT32 is_remain_delta_buffer(UINT32 cs);	//is remain in delta_buffer?
 
 }
 
-save_delta_page(UINT32 bank, UINT32 delta_ppn)		//save delta page in flash
+void save_delta_page(UINT32 bank, UINT32 delta_ppn)		//save delta page in flash
 {
 	UINT32 i;
 	UINT32 lpn, ppn;
@@ -505,5 +501,10 @@ save_delta_page(UINT32 bank, UINT32 delta_ppn)		//save delta page in flash
 	nand_page_program(bank, pbn, offset, DELTA_BUF(bank));
 }
 
-put_delta();			//put delta data in delta_write_buffer
+
+put_delta()			//put delta data in delta_buffer
+{
+	
+}
+
 
