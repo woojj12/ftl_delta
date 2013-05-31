@@ -35,7 +35,7 @@
 // DRAM buffers
 /////////////////
 
-#define NUM_RW_BUFFERS		((DRAM_SIZE - DRAM_BYTES_OTHER) / BYTES_PER_PAGE - 1)
+#define NUM_RW_BUFFERS                             	((DRAM_SIZE - DRAM_BYTES_OTHER) / BYTES_PER_PAGE - 1)
 #define NUM_RD_BUFFERS		(((NUM_RW_BUFFERS / 8) + NUM_BANKS - 1) / NUM_BANKS * NUM_BANKS)
 #define NUM_WR_BUFFERS		(NUM_RW_BUFFERS - NUM_RD_BUFFERS)
 #define NUM_COPY_BUFFERS	NUM_BANKS_MAX
@@ -59,7 +59,7 @@
 // DRAM segmentation
 ///////////////////////////////
 
-#define RD_BUF_ADDR			DRAM_BASE										// base address of SATA read buffers
+#define RD_BUF_ADDR		DRAM_BASE										// base address of SATA read buffers
 #define RD_BUF_BYTES		(NUM_RD_BUFFERS * BYTES_PER_PAGE)
 
 #define WR_BUF_ADDR			(RD_BUF_ADDR + RD_BUF_BYTES)					// base address of SATA write buffers
@@ -107,7 +107,7 @@
 // total BMT bytes
 // JJ
 //#define FTL_BMT_BYTES       ((DATA_BMT_BYTES + LOG_BMT_BYTES + ISOL_BMT_BYTES + FREE_BMT_BYTES + BYTES_PER_SECTOR - 1) / BYTES_PER_SECTOR * BYTES_PER_SECTOR)
-#define FTL_BMT_BYTES       ((DATA_PMT_BYTES + RSRV_BMT_BYTES + BYTES_PER_SECTOR - 1) / BYTES_PER_SECTOR * BYTES_PER_SECTOR)
+#define FTL_BMT_BYTES       ((DATA_PMT_BYTES + DELTA_PMT_BYTES + RSRV_BMT_BYTES + BYTES_PER_SECTOR - 1) / BYTES_PER_SECTOR * BYTES_PER_SECTOR)
 
 // data block mapping table
 // JJ
@@ -116,34 +116,12 @@
 #define DATA_BLK_PER_BANK   ((NUM_DATA_BLK + NUM_BANKS - 1) / NUM_BANKS)
 #define DATA_BMT_ADDR       (BAD_BLK_BMP_ADDR + BAD_BLK_BMP_BYTES)
 #define DATA_BMT_BYTES      ((NUM_BANKS * DATA_BLK_PER_BANK * sizeof(UINT16) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-
-// log block mapping table
-#define NUM_LOG_BLK         (LOG_BLK_PER_BANK * NUM_BANKS)
-#define LOG_BLK_PER_BANK    (VBLKS_PER_BANK - 1 - 1 - MAP_BLK_PER_BANK - DATA_BLK_PER_BANK - ISOL_BLK_PER_BANK - FREE_BLK_PER_BANK)
-#define LOG_BMT_ADDR        (DATA_BMT_ADDR + DATA_BMT_BYTES)
-#define LOG_BMT_BYTES       ((NUM_BANKS * LOG_BLK_PER_BANK * sizeof(UINT16) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-
-// isolation block mapping table
-#define RESERV_ISOL_BLK     2
-#define ISOL_BLK_PER_BANK   ((VBLKS_PER_BANK - DATA_BLK_PER_BANK) / 5) // 20% of log space
-#if (ISOL_BLK_PER_BANK < 8)
-#undef ISOL_BLK_PER_BANK
-#define ISOL_BLK_PER_BANK   8
-#endif
-#define ISOL_BMT_ADDR       (LOG_BMT_ADDR + LOG_BMT_BYTES)
-#define ISOL_BMT_BYTES      ((NUM_BANKS * ISOL_BLK_PER_BANK * sizeof(UINT16) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-
-// free block mapping table
-#define FREE_BLK_PER_BANK   2
-#define NUM_FREE_BLK        (FREE_BLK_PER_BANK * NUM_BANKS)
-#define FREE_BMT_ADDR       (ISOL_BMT_ADDR + ISOL_BMT_BYTES)
-#define FREE_BMT_BYTES      ((NUM_FREE_BLK * sizeof(UINT16) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 */
 
 #define NUM_RSRV_BLK			((NUM_RSRV_BLK + NUM_BANKS - 1) / NUM_BANKS)
 //initially, all data blks are rsrv blk
 #define RSRV_BLK_PER_BANK	(VBLKS_PER_BANK - 1 - 1 - MAP_BLK_PER_BANK)
-#define RSRV_BMT_ADDR		(DATA_PMT_ADDR + DATA_PMT_BYTES)
+#define RSRV_BMT_ADDR		(DELTA_PMT_ADDR + DELTA_PMT_BYTES)
 #define RSRV_BMT_BYTES      ((NUM_BANKS * RSRV_BLK_PER_BANK * sizeof(UINT16) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 
 /*
