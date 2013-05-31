@@ -12,13 +12,6 @@
 #define PROTECTED_SEG_SIZE		64
 #define PROBATIONAL_SEG_SIZE	(SLRU_SIZE - PROTECTED_SEG_SIZE)
 
-//data blk map may not be needed
-/*
-#define _NUM_DATA_BLK		((NUM_LPAGES + PAGES_PER_BLK - 1) / PAGES_PER_BLK)
-#define NUM_ADDITIONAL_BLK	50
-#define NUM_DATA_BLK			(_NUM_DATA_BLK + NUM_ADDITIONAL_BLK)
-*/
-
 #define NUM_MAX_ORI_PAGES				NUM_LPAGES
 #define NUM_MAX_ORI_PAGES_PER_BANK		(NUM_MAX_ORI_PAGES / NUM_BANKS)
 
@@ -31,17 +24,12 @@
 #define DELTA_PMT_ADDR	(DATA_PMT_ADDR + DATA_PMT_BYTES)
 #define DELTA_PMT_BYTES	(NUM_MAX_DELTA_PAGES * sizeof(UINT32) * 2 + DRAM_ECC_UNIT - 1) /DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 
-// static hash library
-//#include "shashtbl.h"
-
-//#define HASH_BUCKET_SIZE    (NUM_MAX_DELTA_PAGES_PER_BANK >> 2)
-//#define HASH_NODE_BYTES_PER_BANK (NUM_MAX_DELTA_PAGES_PER_BANK * sizeof(hashnode))
-//#define HASH_BUCKET_BYTES_PER_BANK (HASH_BUCKET_SIZE * sizeof(hashnode_ptr))
-
+/*
 typedef struct
 {
 	UINT32 PPA_old;
 } DataMap;
+*/
 
 /*
 typedef struct _SLRU_node
