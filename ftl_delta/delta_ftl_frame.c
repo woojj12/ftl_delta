@@ -213,7 +213,7 @@ UINT32 is_in_cache()			//is in cache?
 }
 UINT32 load_original_data(UINT32 ori_ppn)		//load original data
 {
-	
+
 }
 
 void read_from_delta(UINT32 const bank, UINT32 delta_ppn)		//read delta to temp1 buffer
@@ -397,20 +397,20 @@ UINT32 get_free_page(bank)				//get free page
 	if((g_next_free_page[bank]+1) % PAGES_PER_BLK == 0)
 	{
 		nand_page_program(bank, g_next_free_page / PAGES_PER_BLK, PAGES_PER_BLK - 1, LPN_BUF(bank));
-		
+
 		UINT32 pbn = get_rsrv_pbn(bank);
 		g_next_free_page[bank] = pbn * PAGES_PER_BLK;
 		/*
 		버퍼 하나 잡아서
 		g_lpns_current_blk[bank] 카피
 		write to nand(버퍼, g_next_free_page[bank])
-	
+
 		get_rsrv_vbn[bank];
 
 		g_next_free_page[bank] = 새로 가져온 블락의 첫 페이지
 		*/
 	}
-	
+
 	return g_next_free_page[bank];
 }
 
@@ -476,7 +476,7 @@ void save_delta_page(UINT32 bank, UINT32 delta_ppn)		//save delta page in flash
 
 put_delta()			//put delta data in delta_buffer
 {
-	
+
 }
 
 
@@ -484,14 +484,14 @@ put_delta()			//put delta data in delta_buffer
 
 
 
-UINT32 set_valid_PPA(UINT32 PPA)
+UINT32 set_valid_PPA(UINT32 const PPA)
 {
-	return 0x7fff & PPA_delta;
+	return 0x7fff & PPA;
 }
 
-UINT32 set_invalid_PPA(UINT32 PPA)
+UINT32 set_invalid_PPA(UINT32 const PPA)
 {
-	return 0x8000 & PPA_delta;
+	return 0x8000 & PPA;
 }
 
 BOOL32 is_valid_PPA(UINT32 PPA)
@@ -505,18 +505,20 @@ BOOL32 is_valid_PPA(UINT32 PPA)
 }
 
 
-static UINT32 get_rsrv_pbn(UINT32 const bank)
+static UINT32 get_rsrv_pbn(UINT32 const bank, BOOL32 const gc)
 {
-    ASSERT(g_misc_meta[bank].rsrv_blk_cnt > 0);
+	if(gc == FALSE)	//if gc context, no checking rsrv cnt
+		if(g_misc_meta[bank].rsrv_blk_cnt < MIN_RSRV_BLK)
+		{
+			//gc
+			garbage_collection(bank);
+			ret_rsrv_pbn(bank, vblock)
+		}
+    //ASSERT(g_misc_meta[bank].rsrv_blk_cnt > 0);
 
     UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_tail;
     g_misc_meta[bank].rsrv_list_tail = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
     g_misc_meta[bank].rsrv_blk_cnt--;
-	if(g_misc_meta[bank].rsrv_blk_cnt < MIN_RSRV_BLK)
-	{
-		//gc
-		ret_rsrv_pbn(bank, vblock)
-	}
     return read_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16));
 }
 static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)
@@ -529,4 +531,154 @@ static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)
     write_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16), vblock);
     g_misc_meta[bank].rsrv_list_head = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
     g_misc_meta[bank].rsrv_blk_cnt++;
+}
+
+// get data ppa from data page mapping table
+static UINT32 get_data_ppa(UINT32 const bank, UINT32 const lpa)
+{
+    ASSERT(lpa < DATA_PAGES_PER_BANK);
+
+    return read_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)));
+}
+// set data ppa to data page mapping table
+static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa)
+{
+    ASSERT(lpa < DATA_BLK_PER_BANK);
+    ASSERT(ppa < VBLKS_PER_BANK * PAGES_PER_BLK);
+
+    write_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)), ppa);
+}
+
+#define NUM_VICTIM_CANDIDATE 5
+UINT16 lfsr = 0xACE1u;
+UINT16 bit;
+
+UINT32 rand()
+{
+	bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5) ) & 1;
+	return lfsr =  (lfsr >> 1) | (bit << 15);
+}
+
+#define is_data_page(lpa) is_valid_PPA(lpa)
+
+static void garbage_collection(UINT32 const bank)
+{
+	UINT32 i, offset;
+	UINT32 victim, valid_cnt;
+	UINT32 candidate;
+
+	UINT32 lpa, ppa;
+
+	UINT32 target_ppa;
+
+	//빈블락 하나 뺐어오자
+	UINT32 new_blk = get_rsrv_pbn(bank, TRUE);
+	g_next_free_page[bank] = new_blk * PAGES_PER_BLK;
+
+	valid_cnt = PAGES_PER_BLK;
+
+	while(1)
+	{
+		//Data Page Mapping Table에서 하나 가져와서
+		//그 블락을 싹 비울거야
+		candidate = (((UINT32)rand() * (UINT32)rand()) % DATA_PAGES_PER_BANK);
+		candidate = get_data_ppa(bank, candidate);
+
+		//lpa를 가져왔는데
+		//아직 매핑이 안된 놈이 있을 수 있찌
+		if(candidate != 0)
+			break;
+	}
+
+	candidate = get_pbn(candidate);
+
+	//마지막페이지를 읽어오자
+	nand_page_read(bank, candidate, PAGES_PER_BLK - 1, TEMP_BUF(0));
+
+	/*
+	 * LPA들을 읽어오자
+	 * LPA 종류
+	 * 1. 오리지널 페이지 - LPA 저장
+	 * 2. 델타 페이지 - 0x8000 저장
+	 */
+	for(offset = 0; offset < PAGES_PER_BLK - 1; offset++)
+	{
+		lpa = read_dram_32(TEMP_BUF(0) + sizeof(UINT32) * offset);
+
+		if(is_data_page(lpa) == TRUE)
+		{
+			//data page라면
+
+			//Page Mapping에서 LPA에 해당하는 PPA를 찾자
+			ppa = get_data_ppa(bank, lpa);
+
+			//요놈이 밸리드?? 매핑에 있는놈인가??
+			if(ppa == candidate * PAGES_PER_BLK + offset)
+			{
+				//밸리드한놈은 복사
+				//target_ppa = get_free_page(bank);
+				nand_page_copyback(bank, candidate, offset, get_pbn(g_next_free_page[bank]), get_offset(g_next_free_page[bank]));
+
+				//LPA page에 LPA 써줘야지~
+				write_dram_32(LPA_BUF(0) + sizeof(UINT32) * get_offset(g_next_free_page[bank]), lpa);
+				g_next_free_page[bank]++;
+			}
+			else
+			{
+				//mapping에 없으면 인밸리드... 그냥 지나감
+				continue;
+			}
+		}
+		else
+		{
+			//delta page라면
+			//밸리드인지 먼저 검사해야지~
+
+		}
+	}
+	/*
+	 * 	victim[NUM_VICTIM_CANDIDATE];
+	valid_cnt[NUM_VICTIM_CANDIDATE];
+
+	selected = 0;
+	min_valid_cnt = PAGES_PER_BLK;
+
+	//victim 선정
+
+//garbage_collection이 nested로 콜 될 가능성이 있음
+	//어떻게 해야할까?
+	//처리 따로 안해줘도 되나?
+
+for(i=0; i<NUM_VICTIM_CANDIDATE; i++)
+{
+		victim[i] = rand()%BLKS_PER_BANK;
+		마지막 페이지 읽어옴
+		LPA들을 저장
+		오리지널 페이지 중 몇개가 밸리드인지 확인
+
+		if(지금 블락의 밸리드 <= min_valid_cnt)
+		{
+			selected = victim[i];
+			min_valid_cnt = 지금 블락의 밸리드
+		}
+	}
+
+	new_blk = get_rsrv_vbn_force(bank);
+	g_next_free_page[bank] 세팅
+
+	밸리드한 오리지널들을 복사함
+
+g_next_free_page[bank] 세팅
+	 *
+	 */
+}
+
+static UINT32 find_in_delta_map(const UINT32 ppa)
+{
+	UINT32 delta_page;
+
+	for(delta_page = 0; NUM_MAX_DELTA_PAGES_PER_BANK; delta_page++)
+	{
+
+	}
 }
