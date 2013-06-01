@@ -594,7 +594,7 @@ static void garbage_collection(UINT32 const bank)
 	victim = get_pbn(victim);
 
 	//마지막페이지를 읽어오자
-	nand_page_read(bank, victim, PAGES_PER_BLK - 1, TEMP_BUF(0));
+	nand_page_read(bank, victim, PAGES_PER_BLK - 1, GC_BUF_PTR(0));
 
 	/*
 	 * LPA들을 읽어오자
@@ -604,7 +604,7 @@ static void garbage_collection(UINT32 const bank)
 	 */
 	for(offset = 0; offset < PAGES_PER_BLK - 1; offset++)
 	{
-		lpa = read_dram_32(TEMP_BUF(0) + sizeof(UINT32) * offset);
+		lpa = read_dram_32(GC_BUF_PTR(0) + sizeof(UINT32) * offset);
 
 		if(is_data_page(lpa) == TRUE)
 		{
@@ -645,7 +645,7 @@ static void garbage_collection(UINT32 const bank)
 
 			for(delta_offset = 0; delta_offset < delta_cnt; delta_offset++)
 			{
-				lpa = read_dram_32(TEMP_BUF(1) + sizeof(UINT32) * (delta_offset+1) * 2);
+				lpa = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * (delta_offset+1) * 2);
 				/*
 				 * //delta page meta에서 lpa를 하나 읽어왔어
 				//요놈은
@@ -672,8 +672,6 @@ static void garbage_collection(UINT32 const bank)
 						//결국 인밸리드함 ㅠㅠ
 						continue;
 					}
-
-					//lpa = find_in_delta_map(victim * PAGES_PER_BLK + offset);
 				}
 				else
 				{
@@ -687,20 +685,6 @@ static void garbage_collection(UINT32 const bank)
 	//이제 요놈 지우고 rsrv로 놔줘야해
 	nand_block_erase(bank, victim);
 	ret_rsrv_blk(bank, victim);
-}
-
-static UINT32 get_delta_ppa(UINT32 const bank, UINT32 const lpa)
-{
-    ASSERT(lpa < DATA_PAGES_PER_BANK);
-
-    return read_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)));
-}
-static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa)
-{
-    ASSERT(lpa < DATA_BLK_PER_BANK);
-    ASSERT(ppa < VBLKS_PER_BANK * PAGES_PER_BLK);
-
-    write_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)), ppa);
 }
 
 #define get_delta_ppa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1))
