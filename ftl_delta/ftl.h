@@ -31,7 +31,7 @@
 //JJ
 #include "delta.h"
 
-#define SLRU_SIZE				128
+#define SLRU_SIZE                             			128
 #define PROTECTED_SEG_SIZE		64
 #define PROBATIONAL_SEG_SIZE	(SLRU_SIZE - PROTECTED_SEG_SIZE)
 
@@ -127,6 +127,10 @@
 
 // data block mapping table
 // JJ
+#define NUM_DATA_BLK        ((NUM_LPAGES + PAGES_PER_BLK - 1) / PAGES_PER_BLK)	//오리지널 저장하기 위해 필요한 공간
+#define NUM_ADDITIONAL_BLK	50	//														//델타를 위해 추가로 필요한 공간
+#define NUM_MAPPED_BLK		(NUM_DATA_BLK + NUM_ADDITIONAL_BLK)					//총 필요한 공간
+
 #define NUM_MAX_ORI_PAGES				NUM_LPAGES
 #define NUM_MAX_ORI_PAGES_PER_BANK		(NUM_MAX_ORI_PAGES / NUM_BANKS)
 #define DATA_PAGES_PER_BANK		NUM_MAX_ORI_PAGES_PER_BANK
@@ -134,7 +138,7 @@
 #define DATA_PMT_ADDR		(BAD_BLK_BMP_ADDR + BAD_BLK_BMP_BYTES)
 #define DATA_PMT_BYTES      ((NUM_MAX_ORI_PAGES * sizeof(UINT32) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 
-#define NUM_MAX_DELTA_PAGES				(NUM_DTA_BLK * PAGES_BLK - NUM_MAX_ORI_PAGES)	//요거 DTA_BLK가 뭔지 모르겠다 데이터나 델타로 추측해도 정의가 안되있네
+#define NUM_MAX_DELTA_PAGES				(NUM_MAPPED_BLK * PAGES_PER_BLK - NUM_MAX_ORI_PAGES)	//요거 DTA_BLK가 뭔지 모르겠다 데이터나 델타로 추측해도 정의가 안되있네
 #define NUM_MAX_DELTA_PAGES_PER_BANK	(NUM_MAX_DELTA_PAGES / NUM_BANKS)
 
 #define DELTA_PMT_ADDR	(DATA_PMT_ADDR + DATA_PMT_BYTES)
