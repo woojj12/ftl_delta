@@ -614,14 +614,22 @@ static void garbage_collection(UINT32 const bank)
 			ppa = get_data_ppa(bank, lpa);
 
 			//요놈이 최신?? 매핑에 있는놈인가??
-			if(ppa == victim * PAGES_PER_BLK + offset)
+			if((set_valid_ppa(ppa) == victim * PAGES_PER_BLK + offset) || (set_invalid(ppa) == victim * PAGES_PER_BLK + offset))
 			{
 				//밸리드한놈은 복사
 				//target_ppa = get_free_page(bank);
 				nand_page_copyback(bank, victim, offset, get_pbn(g_next_free_page[bank]), get_offset(g_next_free_page[bank]));
 
 				//매핑테이블 업데이트~
-				set_data_ppa(bank, lpa, g_next_free_page[bank]);
+				if(is_valid_ppa(ppa))
+				{
+					set_data_ppa(bank, lpa, g_next_free_page[bank]);
+				}
+				else
+				{
+					set_data_ppa(bank, lpa, set_invalid(g_next_free_page[bank]));
+				}
+
 
 				//LPA page에 LPA 써줘야지~
 				write_dram_32(LPA_BUF(0) + sizeof(UINT32) * get_offset(g_next_free_page[bank]), lpa);
