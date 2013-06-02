@@ -31,12 +31,16 @@
 //JJ
 #include "delta.h"
 
+#define SLRU_SIZE                             				128
+#define PROTECTED_SEG_SIZE		64
+#define PROBATIONAL_SEG_SIZE	(SLRU_SIZE - PROTECTED_SEG_SIZE)
+
 /////////////////
 // DRAM buffers
 /////////////////
 
 #define NUM_RW_BUFFERS                                                          ((DRAM_SIZE - DRAM_BYTES_OTHER) / BYTES_PER_PAGE - 1)
-#define NUM_RD_BUFFERS                             	(((NUM_RW_BUFFERS / 8) + NUM_BANKS - 1) / NUM_BANKS * NUM_BANKS)
+#define NUM_RD_BUFFERS		(((NUM_RW_BUFFERS / 8) + NUM_BANKS - 1) / NUM_BANKS * NUM_BANKS)
 #define NUM_WR_BUFFERS		(NUM_RW_BUFFERS - NUM_RD_BUFFERS)
 #define NUM_COPY_BUFFERS	NUM_BANKS_MAX
 #define NUM_FTL_BUFFERS		NUM_BANKS
@@ -123,6 +127,19 @@
 
 // data block mapping table
 // JJ
+#define NUM_MAX_ORI_PAGES				NUM_LPAGES
+#define NUM_MAX_ORI_PAGES_PER_BANK		(NUM_MAX_ORI_PAGES / NUM_BANKS)
+#define DATA_PAGES_PER_BANK		NUM_MAX_ORI_PAGES_PER_BANK
+
+#define DATA_PMT_ADDR		(BAD_BLK_BMP_ADDR + BAD_BLK_BMP_BYTES)
+#define DATA_PMT_BYTES      ((NUM_MAX_ORI_PAGES * sizeof(UINT32) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
+
+#define NUM_MAX_DELTA_PAGES				(NUM_DTA_BLK * PAGES_BLK - NUM_MAX_ORI_PAGES)
+#define NUM_MAX_DELTA_PAGES_PER_BANK	(NUM_MAX_DELTA_PAGES / NUM_BANKS)
+
+#define DELTA_PMT_ADDR	(DATA_PMT_ADDR + DATA_PMT_BYTES)
+#define DELTA_PMT_BYTES	(NUM_MAX_DELTA_PAGES * sizeof(UINT32) * 2 + DRAM_ECC_UNIT - 1) /DRAM_ECC_UNIT * DRAM_ECC_UNIT)
+
 #define NUM_RSRV_BLK			((NUM_RSRV_BLK + NUM_BANKS - 1) / NUM_BANKS)
 //initially, all data blks are rsrv blk
 #define RSRV_BLK_PER_BANK	(VBLKS_PER_BANK - 1 - 1 - MAP_BLK_PER_BANK)
