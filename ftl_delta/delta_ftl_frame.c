@@ -20,9 +20,9 @@
 UINT32 				  g_ftl_read_buf_id;
 UINT32 				  g_ftl_write_buf_id;
 
-UINT32 next_delta_offset[bank];						//next delta offset
-UINT32 next_delta_meta[bank];						//next delta metadata
-UINT32 g_next_free_page[bank];
+UINT32 next_delta_offset[NUM_BANKS];						//next delta offset
+UINT32 next_delta_meta[NUM_BANKS];						//next delta metadata
+UINT32 g_next_free_page[NUM_BANKS];
 
 
 #define get_pbn(ppn)		((ppn) / PAGES_PER_BLK)
@@ -328,7 +328,7 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 	//ref : greedy
 	UINT32 remain_sects, num_sectors_to_read;
     UINT32 lpn, sect_offset;
-    UINT32 bank, ppn;
+    UINT32 bank, ppa;
 
     lpn          = lba / SECTORS_PER_PAGE;
     sect_offset  = lba % SECTORS_PER_PAGE;
@@ -346,11 +346,11 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
             num_sectors_to_read = SECTORS_PER_PAGE - sect_offset;
         }
         bank = lpn % NUM_BANKS;				//get_num_bank
-        ppn  =  get_data_ppa(bank, lpn);	//ppn구함
+        ppa  =  get_data_ppa(bank, lpn);	//ppa구함
         CHECK_VPAGE(ppn);
 
 ////////////////////////////////////////////////////////////////
-		if (vpn != NULL)
+		if (ppn != NULL)
 		{
 			if(is_in_write_buffer())	//is in write buffer?
 			{
@@ -362,13 +362,13 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 			{
 				//find ppn in cache
 		
-				load_original_data(bank, ppn, sect_offset, num_sectors_to_read);		//load original data
+				load_original_data(bank, ppa, sect_offset, num_sectors_to_read);		//load original data
 		
-				if(is_valid_PPA(ppa))		//is the ppn has delta?
+				if(is_valid_PPA(ppa))		//is the ppa has delta?
 				{
 					read_from_delta();	//read delta to temp2 buffer(use temp, temp2 buffer)
 					//XOR operation
-					if(in_protected_region())	//was ppn in slru protected region (before pop)
+					if(in_protected_region())	//was ppa in slru protected region (before pop)
 					{
 						merge();		//write merge data
 					}
@@ -387,7 +387,7 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 			{
 				//find ppn in page and make cache node -> 위에서 구해놓음(캐시 구현하면 밀어넣어야됨)
 				//pop and push in first slru(probational) slot -> 일단없음
-				load_original_data(bank, ppn, sect_offset, num_sectors_to_read);	//load original data -> 델타없는거니 nand read만하면될듯
+				load_original_data(bank, ppa, sect_offset, num_sectors_to_read);	//load original data -> 델타없는거니 nand read만하면될듯
 			}
 ////////////////////////////////////////////////////////////////
 		}
