@@ -646,10 +646,10 @@ static void garbage_collection(UINT32 const bank)
 			//delta page 라면
 			//일단 페이지를 읽어오고
 			//하나하나 메타데이터로 요놈이 밸리드인지 알아내야행ㅠㅠ
-			nand_page_read(bank, victim, offset, TEMP_BUF(1));
+			nand_page_read(bank, victim, offset, GC_BUF_PTR(1));
 
 			//델타가 몇개 들어있는지 알아냄
-			delta_cnt = read_dram_32(TEMP_BUF(1));
+			delta_cnt = read_dram_32(GC_BUF_PTR(1));
 
 			for(delta_offset = 0; delta_offset < delta_cnt; delta_offset++)
 			{
