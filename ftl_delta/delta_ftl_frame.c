@@ -41,33 +41,41 @@ static void load_metadata(void);
 static void init_metadata_sram(void);
 
 //read stream function
-is_in_write_buffer();		//is in write buffer?
-is_in_cache();			//is in cache?
-void load_original_data_write(UINT32 bank, UINT32 old_ppa, UINT32 page_offset, UINT32 num_sectors)		//load original data
+UINT32 is_in_write_buffer();		//is in write buffer?
+UINT32 is_in_cache();			//is in cache?
+static inline void load_original_data(UINT32 bank, UINT32 ori_ppn, UINT32 sect_offset, UINT32 num_sectors_to_read)		//load original data
 
 void read_from_delta(UINT32 const bank, UINT32 delta_ppn);		//read delta
-in_protected_region();		//was ppn in slru protected region (before pop)
-copy_to_temp_buffer();		//copy from delta_write_buffer to temp_buffer (use temp1, temp2 buffer)
-find_delta_data();		//find delta data in temp_buffer;
-_lzf_decompress();		//decompress data
+UINT32 in_protected_region();		//was ppn in slru protected region (before pop)
+UINT32 find_delta_data(UINT32 buf_ptr, UINT32 delta_ppn);		//find delta data in temp_buffer;
+void _lzf_decompress (const void *const in_data, void *out_data);		//decompress data
 
 //write stream function (not in read stream function)
-static void evict(UINT32 const lpn, UINT32 const sect_offset, UINT32 const num_sectors)				//write(not in write buffer)
-write_to_delta();		//write to delta write buffer
-get_free_page(UINT32 bank);		//get free page
-save_original_data();		//write as original data
-_lzf_compress();		//compress by lzf
-is_remain_delta_write_buffer();	//is remain in delta_write_buffer?
-put_delta();			//put delta data in delta_write_buffer
+static void evict(UINT32 const lpn, UINT32 const sect_offset, UINT32 const num_sectors);				//write(not in write buffer)
+void load_original_data_write(UINT32 bank, UINT32 old_ppa, UINT32 page_offset, UINT32 num_sectors);		//load original data for write
+UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppn);		//write to delta write buffer
+UINT32 get_free_page(UINT32 bank);		//get free page
+void save_original_data(UINT32 bank, UINT32 new_ppa, UINT32 page_offset, UINT32 column_cnt);		//write as original data
+UINT32 _lzf_compress (const void *const in_data, void *out_data);		//compress by lzf
+UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs);	//is remain in delta_write_buffer?
+void save_delta_page(UINT32 bank, UINT32 delta_ppn);		//save delta page in flash
+void put_delta(UINT32 bank, UINT32 cs);			//put delta data in delta_write_buffer
 
 //address related function
-
 UINT32 set_valid_PPA(UINT32 PPA);		//set valid PPA
 UINT32 set_invalid_PPA(UINT32 PPA);		//set invalid PPA
 BOOL32 is_valid_PPA(UINT32 PPA);		//is valid PPA?
 
 static UINT32 get_rsrv_pbn(UINT32 const bank);						//reserved block -> using block
-static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)	//gc block -> reserved block
+static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock);	//gc block -> reserved block
+
+static UINT32 get_data_ppa(UINT32 const bank, UINT32 const lpa);	// get data ppa from data page mapping table
+static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa);	// set data ppa to data page mapping table
+
+UINT32 rand();				//random number generation
+static void garbage_collection(UINT32 const bank);		//garbage collection
+void delta_copy(UINT32 bank, UINT32 lpa, UINT32 offset);	//delta copy
+static BOOL32 is_in_delta_map(const UINT32 lpa, const UINT32 ppa);	//is in delta mapping?
 
 //functions
 //open stream function
@@ -315,7 +323,6 @@ static void load_metadata(void)
 }
 
 //read stream function
-
 void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 {
 	//ref : greedy
@@ -511,7 +518,6 @@ void _lzf_decompress (const void *const in_data, void *out_data)		//decompress d
 
 
 //write stream function (not in read stream function)
-
 void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 {
     UINT32 remain_sects, num_sectors_to_write;
@@ -823,7 +829,7 @@ void save_delta_page(UINT32 bank, UINT32 delta_ppn)		//save delta page in flash
 }
 
 
-put_delta(UINT32 bank, UINT32 cs)			//put delta data in delta_buffer
+void put_delta(UINT32 bank, UINT32 cs)			//put delta data in delta_buffer
 {
 	UINT16 header;
 	write_dram_16(next_delta_meta[bank], cs);
