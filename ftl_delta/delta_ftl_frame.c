@@ -741,8 +741,6 @@ static void garbage_collection(UINT32 const bank)
 	UINT32 delta_offset;			//delta_offset : offset of delta
 	UINT32 delta_cnt;
 
-	//UINT32 delta_data_offset;			//delta_data_offset : address of offset in delta_offset
-
 	//빈블락 하나 뺐어오자
 	UINT32 new_blk = get_rsrv_pbn(bank, TRUE);
 	g_next_free_page[bank] = new_blk * PAGES_PER_BLK;
@@ -797,7 +795,7 @@ static void garbage_collection(UINT32 const bank)
 				}
 				else
 				{
-					set_data_ppn(bank, lpa, set_invalid(g_next_free_page[bank]));
+					set_data_ppa(bank, lpa, set_invalid(g_next_free_page[bank]));
 				}
 
 				//LPA page에 LPA 써줘야지~
@@ -827,7 +825,7 @@ static void garbage_collection(UINT32 const bank)
 				 * //delta page meta에서 lpa를 하나 읽어왔어
 				//요놈은
 				//1. 밸리드한 델타
-				 * 	요놈은 lpa에 ppa를 저장해 놨어야해 -> ???
+				 * 	밸리드한 델타와 메타를 델타버퍼에 복사
 				//2. 인밸리드한 델타(버퍼에서 플래시 가기 전에 또 같은 lpa에 write 와서 이전놈이 인밸리드 된거
 				 * 	요놈은 인밸리드(0x8000)을 저장해 놨어야해
 				 *
@@ -841,17 +839,16 @@ static void garbage_collection(UINT32 const bank)
 						//요놈이 진짜 밸리드한 델타임
 						/*
 						 * 오프셋 가져가서 압축 풀고... WriteToDelta로 넘겨버리자
+						 * -> 압축안풀고 바로 카피했다
 						 * 요부분은 너가 좀 해줘!
+						 * -> ㅇㅇ
 						 */
 						/*
 						 * offset 정보는 얻는데, 압축을 풀필요는 없을거같아
 						 * 압축안풀고 그 자료 그대로 옮기는게 delta_copy
 						 * ;
 						*/
-						//offset 읽어서 delta_data_addr을 찾는거로
-						//delta_data_addr = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
-						//delta_data_addr = delta_data_addr + GC_BUF_PTR(1);
-						//delta_copy(bank, delta_data_addr, DELTA_BUF(bank));
+
 						delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
 						delta_copy(bank, lpa, delta_data_offset)
 					}
