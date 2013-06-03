@@ -37,7 +37,7 @@ static void build_bad_blk_list(void);
 static void format(void);
 static BOOL32 check_format_mark(void);				//in greedy
 static void write_format_mark(void);				//in greedy
-static void load_metadata(void);
+//static void load_metadata(void);
 static void init_metadata_sram(void);
 
 //read stream function
@@ -75,7 +75,7 @@ static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa);
 UINT32 rand();				//random number generation
 static void garbage_collection(UINT32 const bank);		//garbage collection
 void delta_copy(UINT32 bank, UINT32 lpa, UINT32 offset);	//delta copy
-static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa);	//is in delta mapping?
+//static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa);	//is in delta mapping?
 
 /////////////////////////////////////////////
 
@@ -98,26 +98,26 @@ static UINT32 get_ppa_delta(UINT32 const lpa);
 
 static void sanity_check(void)
 {
-    UINT32 dram_requirement = RD_BUF_BYTES + WR_BUF_BYTES + DRAM_BYTES_OTHER;
+	UINT32 dram_requirement = RD_BUF_BYTES + WR_BUF_BYTES + DRAM_BYTES_OTHER;
 
-    if ((dram_requirement > DRAM_SIZE) ||
-        (sizeof(misc_metadata) > BYTES_PER_PAGE)) {
-        led_blink();
-        while (1);
-    }
+	if ((dram_requirement > DRAM_SIZE) ||
+			(sizeof(misc_metadata) > BYTES_PER_PAGE)) {
+		led_blink();
+		while (1);
+	}
 }
 static BOOL32 is_bad_block(UINT32 const bank, UINT32 const vblk_offset)
 {
-    if (tst_bit_dram(BAD_BLK_BMP_ADDR + bank*(VBLKS_PER_BANK/8 + 1), vblk_offset) == FALSE) {
-        return FALSE;
-    }
-    return TRUE;
+	if (tst_bit_dram(BAD_BLK_BMP_ADDR + bank*(VBLKS_PER_BANK/8 + 1), vblk_offset) == FALSE) {
+		return FALSE;
+	}
+	return TRUE;
 }
 static void set_bad_block(UINT32 const bank, UINT32 const vblk_offset)
 {
-    set_bit_dram(BAD_BLK_BMP_ADDR + bank*(VBLKS_PER_BANK/8 + 1), vblk_offset);
-    g_bad_blk_count[bank]++;
-    uart_printf("found additional bad block: bank %d vblock %d", bank, vblk_offset);
+	set_bit_dram(BAD_BLK_BMP_ADDR + bank*(VBLKS_PER_BANK/8 + 1), vblk_offset);
+	g_bad_blk_count[bank]++;
+	uart_printf("found additional bad block: bank %d vblock %d", bank, vblk_offset);
 }
 
 //////////////////////////
@@ -127,36 +127,36 @@ static void set_bad_block(UINT32 const bank, UINT32 const vblk_offset)
 void ftl_open(void)
 {
 	led(0);
-    sanity_check();
-    //----------------------------------------
-    // read scan lists from NAND flash
-    // and build bitmap of bad blocks
-    //----------------------------------------
+	sanity_check();
+	//----------------------------------------
+	// read scan lists from NAND flash
+	// and build bitmap of bad blocks
+	//----------------------------------------
 	build_bad_blk_list();
 
-    //----------------------------------------
+	//----------------------------------------
 	// If necessary, do low-level format
 	// format() should be called after loading scan lists, because format() calls is_bad_block().
-    //----------------------------------------
- 	if (check_format_mark() == FALSE)
-//	if (TRUE)
+	//----------------------------------------
+	if (check_format_mark() == FALSE)
+		//	if (TRUE)
 	{
-        uart_print("do format");
+		uart_print("do format");
 		format();
-        uart_print("end format");
+		uart_print("end format");
 	}
-    // load FTL metadata
-    else
-    {
-        load_metadata();
-    }
+	// load FTL metadata
+	else
+	{
+		load_metadata();
+	}
 	g_ftl_read_buf_id = 0;
 	g_ftl_write_buf_id = 0;
 
-    // This example FTL can handle runtime bad block interrupts and read fail (uncorrectable bit errors) interrupts
-    flash_clear_irq();
+	// This example FTL can handle runtime bad block interrupts and read fail (uncorrectable bit errors) interrupts
+	flash_clear_irq();
 
-    SETREG(INTR_MASK, FIRQ_DATA_CORRUPT | FIRQ_BADBLK_L | FIRQ_BADBLK_H);
+	SETREG(INTR_MASK, FIRQ_DATA_CORRUPT | FIRQ_BADBLK_L | FIRQ_BADBLK_H);
 	SETREG(FCONF_PAUSE, FIRQ_DATA_CORRUPT | FIRQ_BADBLK_L | FIRQ_BADBLK_H);
 
 	enable_irq();
@@ -164,7 +164,7 @@ void ftl_open(void)
 
 static void format(void)
 {
-  //  uart_printf("Total FTL DRAM metadata size: %d KB", DRAM_BYTES_OTHER / 1024);
+	//  uart_printf("Total FTL DRAM metadata size: %d KB", DRAM_BYTES_OTHER / 1024);
 	/*
     uart_print("do format");
     uart_print("NUM_PSECTORS");
@@ -181,96 +181,96 @@ static void format(void)
     uart_print_32(ISOL_BLK_PER_BANK);
     uart_print("FREE_BLK_PER_BANK");
     uart_print_32(FREE_BLK_PER_BANK);
-	*/
+	 */
 
-    //----------------------------------------
-    // initialize DRAM metadata
-    //----------------------------------------
-    // data/log/isolation/free block mapping table
+	//----------------------------------------
+	// initialize DRAM metadata
+	//----------------------------------------
+	// data/log/isolation/free block mapping table
 
-    mem_set_dram(DATA_PMT_ADDR, 0xFF, DATA_PMT_BYTES);
+	mem_set_dram(DATA_PMT_ADDR, 0xFF, DATA_PMT_BYTES);
 	mem_set_dram(DELTA_PMT_ADDR, 0xFF, DELTA_PMT_BYTES);
-    mem_set_dram(RSRV_BMT_ADDR, NULL, RSRV_BMT_BYTES);
+	mem_set_dram(RSRV_BMT_ADDR, NULL, RSRV_BMT_BYTES);
 
-    // setting map/data/log/isolation/free block mapping table
-    // NOTE: exclude bad blocks
-    UINT32 lbn, vblock;
-    for (UINT32 bank = 0; bank < NUM_BANKS; bank++) {
-        vblock = MISCBLK_VBN;
+	// setting map/data/log/isolation/free block mapping table
+	// NOTE: exclude bad blocks
+	UINT32 lbn, vblock;
+	for (UINT32 bank = 0; bank < NUM_BANKS; bank++) {
+		vblock = MISCBLK_VBN;
 
-        // misc. block (fixed location)
-        nand_block_erase(bank, vblock);
+		// misc. block (fixed location)
+		nand_block_erase(bank, vblock);
 
-        g_bsp_isr_flag[bank] = INVALID;
-        // map block
-        for (lbn = 0; lbn < MAP_BLK_PER_BANK;) {
-            vblock++;
-            if (is_bad_block(bank, vblock) == TRUE) {
-                continue;
-            }
-            nand_block_erase_sync(bank, vblock);
-            if (g_bsp_isr_flag[bank] != INVAL) {
-                set_bad_block(bank, g_bsp_isr_flag[bank]);
-                g_bsp_isr_flag[bank] = INVAL;
-                continue;
-            }
-            set_mapblk_vpn(bank, lbn, vblock * PAGES_PER_BLK - 1);
-            lbn++;
-        }
-        // rsrv block mapping table
-        for (lbn = 0; lbn < RSRV_BLK_PER_BANK;) {
-            vblock++;
-            if (vblock >= VBLKS_PER_BANK) {
-                break;
-            }
-            if (is_bad_block(bank, vblock) == TRUE) {
-                continue;
-            }
-            nand_block_erase_sync(bank, vblock);
-            if (g_bsp_isr_flag[bank] != INVAL) {
-                set_bad_block(bank, g_bsp_isr_flag[bank]);
-                g_bsp_isr_flag[bank] = INVAL;
-                continue;
-            }
-            ret_rsrv_pbn(bank, vblock);
-            lbn++;
-        }
-        uart_printf("above log blocks are invalid..bank %d lbn %d", bank, lbn);
-        // set remained rsrv blocks as `invalid'
-        /*
+		g_bsp_isr_flag[bank] = INVALID;
+		// map block
+		for (lbn = 0; lbn < MAP_BLK_PER_BANK;) {
+			vblock++;
+			if (is_bad_block(bank, vblock) == TRUE) {
+				continue;
+			}
+			nand_block_erase_sync(bank, vblock);
+			if (g_bsp_isr_flag[bank] != INVAL) {
+				set_bad_block(bank, g_bsp_isr_flag[bank]);
+				g_bsp_isr_flag[bank] = INVAL;
+				continue;
+			}
+			set_mapblk_vpn(bank, lbn, vblock * PAGES_PER_BLK - 1);
+			lbn++;
+		}
+		// rsrv block mapping table
+		for (lbn = 0; lbn < RSRV_BLK_PER_BANK;) {
+			vblock++;
+			if (vblock >= VBLKS_PER_BANK) {
+				break;
+			}
+			if (is_bad_block(bank, vblock) == TRUE) {
+				continue;
+			}
+			nand_block_erase_sync(bank, vblock);
+			if (g_bsp_isr_flag[bank] != INVAL) {
+				set_bad_block(bank, g_bsp_isr_flag[bank]);
+				g_bsp_isr_flag[bank] = INVAL;
+				continue;
+			}
+			ret_rsrv_pbn(bank, vblock);
+			lbn++;
+		}
+		uart_printf("above log blocks are invalid..bank %d lbn %d", bank, lbn);
+		// set remained rsrv blocks as `invalid'
+		/*
         while (lbn < LOG_BLK_PER_BANK) {
             write_dram_16(LOG_BMT_ADDR + ((bank * LOG_BLK_PER_BANK + lbn) * sizeof(UINT16)),
                           (UINT16)-1);
             lbn++;
         }
-        */
-    }
-    //----------------------------------------
-    // initialize SRAM metadata
-    //----------------------------------------
-    init_metadata_sram();
+		 */
+	}
+	//----------------------------------------
+	// initialize SRAM metadata
+	//----------------------------------------
+	init_metadata_sram();
 
-    // flush FTL metadata into NAND flash
-    ftl_flush();
+	// flush FTL metadata into NAND flash
+	ftl_flush();
 
-    write_format_mark();
+	write_format_mark();
 	led(1);
-    uart_print("format complete");
+	uart_print("format complete");
 }
 
 static BOOL32 check_format_mark(void)
 {
 	// This function reads a flash page from (bank #0, block #0) in order to check whether the SSD is formatted or not.
 
-	#ifdef __GNUC__
+#ifdef __GNUC__
 	extern UINT32 size_of_firmware_image;
 	UINT32 firmware_image_pages = (((UINT32) (&size_of_firmware_image)) + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	#else
+#else
 	extern UINT32 Image$$ER_CODE$$RO$$Length;
 	extern UINT32 Image$$ER_RW$$RW$$Length;
 	UINT32 firmware_image_bytes = ((UINT32) &Image$$ER_CODE$$RO$$Length) + ((UINT32) &Image$$ER_RW$$RW$$Length);
 	UINT32 firmware_image_pages = (firmware_image_bytes + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	#endif
+#endif
 
 	UINT32 format_mark_page_offset = FW_PAGE_OFFSET + firmware_image_pages;
 	UINT32 temp;
@@ -316,15 +316,15 @@ static void write_format_mark(void)
 {
 	// This function writes a format mark to a page at (bank #0, block #0).
 
-	#ifdef __GNUC__
+#ifdef __GNUC__
 	extern UINT32 size_of_firmware_image;
 	UINT32 firmware_image_pages = (((UINT32) (&size_of_firmware_image)) + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	#else
+#else
 	extern UINT32 Image$$ER_CODE$$RO$$Length;
 	extern UINT32 Image$$ER_RW$$RW$$Length;
 	UINT32 firmware_image_bytes = ((UINT32) &Image$$ER_CODE$$RO$$Length) + ((UINT32) &Image$$ER_RW$$RW$$Length);
 	UINT32 firmware_image_pages = (firmware_image_bytes + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	#endif
+#endif
 
 	UINT32 format_mark_page_offset = FW_PAGE_OFFSET + firmware_image_pages;
 
@@ -350,53 +350,273 @@ static void write_format_mark(void)
 	while (BSP_FSM(0) != BANK_IDLE);
 }
 
-
 static void init_metadata_sram(void)
 {
-    for (UINT32 bank = 0; bank < NUM_BANKS; bank++) {
-        set_miscblk_vpn(bank, (MISCBLK_VBN * PAGES_PER_BLK) - 1);
+	for (UINT32 bank = 0; bank < NUM_BANKS; bank++) {
+		set_miscblk_vpn(bank, (MISCBLK_VBN * PAGES_PER_BLK) - 1);
 
 		UINT32 pbn = get_rsrv_pbn(bank, FALSE);
 		g_next_free_page[bank] = pbn * PAGES_PER_BANK;
-    }
+	}
 }
 
 static void build_bad_blk_list(void)
 {
-}
+	UINT32 bank, num_entries, result, vblk_offset;
+	scan_list_t* scan_list = (scan_list_t*) TEMP_BUF_ADDR;
 
+	mem_set_dram(BAD_BLK_BMP_ADDR, NULL, BAD_BLK_BMP_BYTES);
+
+	disable_irq();
+
+	flash_clear_irq();
+
+	for (bank = 0; bank < NUM_BANKS; bank++) {
+		SETREG(FCP_CMD, FC_COL_ROW_READ_OUT);
+		SETREG(FCP_BANK, REAL_BANK(bank));
+		SETREG(FCP_OPTION, FO_E);
+		SETREG(FCP_DMA_ADDR, (UINT32) scan_list);
+		SETREG(FCP_DMA_CNT, SCAN_LIST_SIZE);
+		SETREG(FCP_COL, 0);
+		SETREG(FCP_ROW_L(bank), SCAN_LIST_PAGE_OFFSET);
+		SETREG(FCP_ROW_H(bank), SCAN_LIST_PAGE_OFFSET);
+
+		SETREG(FCP_ISSUE, NULL);
+		while ((GETREG(WR_STAT) & 0x00000001) != 0);
+		while (BSP_FSM(bank) != BANK_IDLE);
+
+		num_entries = NULL;
+		result = OK;
+
+		if (BSP_INTR(bank) & FIRQ_DATA_CORRUPT) {
+			result = FAIL;
+		}
+		else {
+			UINT32 i;
+
+			num_entries = read_dram_16(&(scan_list->num_entries));
+
+			if (num_entries > SCAN_LIST_ITEMS) {
+				result = FAIL;
+			}
+			else {
+				for (i = 0; i < num_entries; i++) {
+					UINT16 entry = read_dram_16(scan_list->list + i);
+					UINT16 pblk_offset = entry & 0x7FFF;
+
+					if (pblk_offset == 0 || pblk_offset >= PBLKS_PER_BANK) {
+#if OPTION_REDUCED_CAPACITY == FALSE
+						result = FAIL;
+#endif
+					}
+					else {
+						write_dram_16(scan_list->list + i, pblk_offset);
+					}
+				}
+			}
+		}
+		if (result == FAIL) {
+			num_entries = 0;
+		}
+		else {
+			write_dram_16(&(scan_list->num_entries), 0);
+		}
+		g_bad_blk_count[bank] = 0;
+
+		for (vblk_offset = 1; vblk_offset < VBLKS_PER_BANK; vblk_offset++) {
+			BOOL32 bad = FALSE;
+
+#if OPTION_2_PLANE
+			{
+				UINT32 pblk_offset;
+
+				pblk_offset = vblk_offset * NUM_PLANES;
+
+				if (mem_search_equ_dram(scan_list, sizeof(UINT16), num_entries + 1, pblk_offset) < num_entries + 1) {
+					bad = TRUE;
+				}
+				pblk_offset = vblk_offset * NUM_PLANES + 1;
+
+				if (mem_search_equ_dram(scan_list, sizeof(UINT16), num_entries + 1, pblk_offset) < num_entries + 1) {
+					bad = TRUE;
+				}
+			}
+#else
+			{
+				if (mem_search_equ_dram(scan_list, sizeof(UINT16), num_entries + 1, vblk_offset) < num_entries + 1)	{
+					bad = TRUE;
+				}
+			}
+#endif
+
+			if (bad) {
+				g_bad_blk_count[bank]++;
+				set_bit_dram(BAD_BLK_BMP_ADDR + bank*(VBLKS_PER_BANK/8 + 1), vblk_offset);
+			}
+		}
+	}
+}
+/*
 static void load_metadata(void)
 {
+    load_misc_metadata();
+    // load data/log/isolation/free block mapping table from map block lbn #0
+    load_dram_metadata_from_mapblk(0, DATA_BMT_ADDR, VC_BITMAP_BYTES + SC_BITMAP_BYTES + BLK_ERASE_CNT_BYTES);
+    // load log page mapping table from map block lbn #1
+    load_dram_metadata_from_mapblk(1, HASH_BUCKET_ADDR, HASH_BUCKET_BYTES + HASH_NODE_BYTES);
+    // load bit map table, block erase cnt from map block lbn #2
+    load_dram_metadata_from_mapblk(2, VC_BITMAP_ADDR, VC_BITMAP_BYTES + SC_BITMAP_BYTES + BLK_ERASE_CNT_BYTES);
 }
+static void load_dram_metadata_from_mapblk(UINT32 const mapblk_lbn, UINT32 const dram_addr, UINT32 const dram_bytes)
+{
+    UINT32 bank, mapblk_vpn;
+    UINT32 const dram_boundary = dram_addr + dram_bytes;
+    UINT32 addr       = dram_addr;
+    UINT32 num_bytes  = dram_bytes;
+    UINT32 load_mapblk_vpn[NUM_BANKS];
+    UINT32 temp_page_addr, temp_bytes;
+
+    // get start mapblk vpn for loading metadata
+    for (bank = 0; bank < NUM_BANKS; bank++) {
+        load_mapblk_vpn[bank] = get_mapblk_vpn(bank, mapblk_lbn) - (((num_bytes + BYTES_PER_PAGE - 1) / BYTES_PER_PAGE) / NUM_BANKS) + 1;
+
+        if (bank < ((num_bytes + BYTES_PER_PAGE - 1) / BYTES_PER_PAGE) % NUM_BANKS) {
+            load_mapblk_vpn[bank]--;
+        }
+    }
+    if (num_bytes > BYTES_PER_PAGE) {
+        num_bytes = BYTES_PER_PAGE;
+    }
+    // parallel flush
+    while (addr < dram_boundary) {
+        temp_page_addr = addr; // temporal backup DRAM addr
+        temp_bytes     = num_bytes;
+
+        for (bank = 0; bank < NUM_BANKS; bank++) {
+            if (addr >= dram_boundary) {
+                break;
+            }
+            if (addr + BYTES_PER_PAGE > dram_boundary) {
+                num_bytes = dram_boundary - addr;
+            }
+            mapblk_vpn = load_mapblk_vpn[bank];
+            load_mapblk_vpn[bank]++;
+
+            // read FTL metadata from map block
+            nand_page_ptread(bank,
+                             mapblk_vpn / PAGES_PER_BLK,
+                             mapblk_vpn % PAGES_PER_BLK,
+                             0,
+                             (num_bytes + BYTES_PER_SECTOR - 1) / BYTES_PER_SECTOR,
+                             FTL_BUF(bank),
+                             RETURN_ON_ISSUE);
+            addr += num_bytes;
+        }
+        flash_finish();
+        // copy to FTL metadata from FTL buffer
+        for (bank = 0; bank < NUM_BANKS; bank++) {
+
+            if (temp_page_addr >= dram_boundary) {
+                break;
+            }
+            if (temp_page_addr + BYTES_PER_PAGE > dram_boundary) {
+                temp_bytes = dram_boundary - temp_page_addr;
+            }
+            mem_copy(temp_page_addr, FTL_BUF(bank), temp_bytes);
+
+            temp_page_addr += temp_bytes;
+        }
+    }
+}
+
+// load misc + ftl_statistics metadata
+// Assumption: the size of misc metadata is less than BYTES_PER_PAGE
+static void load_misc_metadata(void)
+{
+    UINT32 const misc_meta_bytes      = sizeof(misc_metadata); // flush per bank
+    UINT32 const ftl_statistics_bytes = sizeof(ftl_statistics);
+    UINT32 const hashtbl_bytes        = sizeof(SHASHTBL);
+
+    UINT32 load_flag = 0;
+    UINT32 bank;
+    UINT32 load_cnt = 0;
+    UINT32 miscblk_vbn = MISCBLK_VBN;
+
+    flash_finish();
+
+	disable_irq();
+	flash_clear_irq();	// clear any flash interrupt flags that might have been set
+
+    // scan valid metadata in descending order from last page offset
+    for (UINT32 page_num = PAGES_PER_BLK - 1; page_num != ((UINT32) -1); page_num--) {
+        for (bank = 0; bank < NUM_BANKS; bank++) {
+            if (load_flag & (0x1 << bank)) {
+                continue;
+            }
+            // read valid metadata from misc. metadata area
+            nand_page_ptread(bank,
+                             miscblk_vbn,
+                             page_num,
+                             0,
+                             NUM_MISC_META_SECT,
+                             FTL_BUF(bank),
+                             RETURN_ON_ISSUE);
+        }
+        flash_finish();
+        for (bank = 0; bank < NUM_BANKS; bank++) {
+
+            // checking read ALL 0xFF?
+            if (!(load_flag & (0x1 << bank)) && !(BSP_INTR(bank) & FIRQ_ALL_FF)) {
+                 // now we read misc metadata from NAND successfully
+                load_flag = load_flag | (0x1 << bank);
+                load_cnt++;
+            }
+            CLR_BSP_INTR(bank, 0xFF);
+        }
+    }
+    ASSERT(load_cnt == NUM_BANKS);
+
+    // copy to SRAM misc. metadata from FTL buffer
+    for (bank = 0; bank < NUM_BANKS; bank++) {
+        // 1. misc. metadata
+        mem_copy(&g_misc_meta[bank], FTL_BUF(bank), misc_meta_bytes);
+        // 2. ftl statstics
+        //mem_copy(&g_ftl_statistics[bank], FTL_BUF(bank) + misc_meta_bytes, ftl_statistics_bytes);
+        // 3. hash table pointer
+        //mem_copy(&g_shashtbl[bank], FTL_BUF(bank) + misc_meta_bytes + hashtbl_bytes, hashtbl_bytes);
+    }
+	enable_irq();
+}
+ */
 
 //read stream function
 void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 {
 	//ref : greedy
 	UINT32 remain_sects, num_sectors_to_read;
-    UINT32 lpa, sect_offset;
-    UINT32 bank, ppa;
+	UINT32 lpa, sect_offset;
+	UINT32 bank, ppa;
 
-    lpa          = lba / SECTORS_PER_PAGE;
-    sect_offset  = lba % SECTORS_PER_PAGE;
-    remain_sects = num_sectors;
+	lpa          = lba / SECTORS_PER_PAGE;
+	sect_offset  = lba % SECTORS_PER_PAGE;
+	remain_sects = num_sectors;
 
 	while(remain_sects != 0 )
 	{
 
-        if ((sect_offset + remain_sects) < SECTORS_PER_PAGE)
-        {
-            num_sectors_to_read = remain_sects;
-        }
-        else
-        {
-            num_sectors_to_read = SECTORS_PER_PAGE - sect_offset;
-        }
-        bank = lpa % NUM_BANKS;				//get_num_bank
-        ppa  =  get_data_ppa(bank, lpa);	//ppa구함
-        CHECK_VPAGE(ppa);
+		if ((sect_offset + remain_sects) < SECTORS_PER_PAGE)
+		{
+			num_sectors_to_read = remain_sects;
+		}
+		else
+		{
+			num_sectors_to_read = SECTORS_PER_PAGE - sect_offset;
+		}
+		bank = lpa % NUM_BANKS;				//get_num_bank
+		ppa  =  get_data_ppa(bank, lpa);	//ppa구함
+		CHECK_VPAGE(ppa);
 
-////////////////////////////////////////////////////////////////
+		////////////////////////////////////////////////////////////////
 		if (ppa != NULL)
 		{
 			/*
@@ -409,9 +629,9 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 			if(is_in_cache())			//is in cache?
 			{
 				//find ppa in cache
-		
+
 				load_original_data(bank, ppa, sect_offset, num_sectors_to_read);		//load original data
-		
+
 				if(is_valid_ppa(ppa))		//is the ppa has delta?
 				{
 					read_from_delta();	//read delta to temp2 buffer(use temp, temp2 buffer)
@@ -431,12 +651,12 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 				}
 				//pop and push in first slru(protected) slot
 			}
-			
+
 			else						//not in cache
-			*/
-			
-				//find ppa in page and make cache node -> 위에서 구해놓음(캐시 구현하면 밀어넣어야됨)
-				//pop and push in first slru(probational) slot -> 일단없음
+			 */
+
+			//find ppa in page and make cache node -> 위에서 구해놓음(캐시 구현하면 밀어넣어야됨)
+			//pop and push in first slru(probational) slot -> 일단없음
 			{
 				if(is_valid_ppa(ppa) == TRUE)
 				{
@@ -448,26 +668,26 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 					//there is delta
 					merge(bank, lpa, get_ppa_delta(lpa), RD_BUF_PTR(g_ftl_read_buf_id));
 				}
-				g_ftl_read_buf_id = next_read_buf_id;
+				g_ftl_read_buf_id = (g_ftl_read_buf_id + 1) % NUM_RD_BUFFERS;
 			}
-////////////////////////////////////////////////////////////////
+			////////////////////////////////////////////////////////////////
 		}
 		else
 		{
 			UINT32 next_read_buf_id = (g_ftl_read_buf_id + 1) % NUM_RD_BUFFERS;
 
-			#if OPTION_FTL_TEST == 0
+#if OPTION_FTL_TEST == 0
 			while (next_read_buf_id == GETREG(SATA_RBUF_PTR));	// wait if the read buffer is full (slow host)
-			#endif
+#endif
 
-            // fix bug @ v.1.0.6
-            // Send 0xFF...FF to host when the host request to read the sector that has never been written.
-            // In old version, for example, if the host request to read unwritten sector 0 after programming in sector 1, Jasmine would send 0x00...00 to host.
-            // However, if the host already wrote to sector 1, Jasmine would send 0xFF...FF to host when host request to read sector 0. (ftl_read() in ftl_xxx/ftl.c)
+			// fix bug @ v.1.0.6
+			// Send 0xFF...FF to host when the host request to read the sector that has never been written.
+			// In old version, for example, if the host request to read unwritten sector 0 after programming in sector 1, Jasmine would send 0x00...00 to host.
+			// However, if the host already wrote to sector 1, Jasmine would send 0xFF...FF to host when host request to read sector 0. (ftl_read() in ftl_xxx/ftl.c)
 			mem_set_dram(RD_BUF_PTR(g_ftl_read_buf_id) + sect_offset*BYTES_PER_SECTOR,
-                         0x0, num_sectors_to_read*BYTES_PER_SECTOR);
+					0x0, num_sectors_to_read*BYTES_PER_SECTOR);
 
-            flash_finish();
+			flash_finish();
 
 			SETREG(BM_STACK_RDSET, next_read_buf_id);	// change bm_read_limit
 			SETREG(BM_STACK_RESET, 0x02);				// change bm_read_limit
@@ -491,12 +711,14 @@ UINT32 is_in_cache(void)			//is in cache?
 {
 	return 0;
 }
-static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 const sect_offset, UINT32 const num_sectors_to_read)		//load original data
+static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 const sect_offset, UINT32 const num_sectors_to_read, UINT32 const buf_addr)		//load original data
 {
-	nand_page_ptread_to_host(bank, ori_ppa / PAGES_PER_BLK, ori_ppa % PAGES_PER_BLK, sect_offset, num_sectors_to_read);
+	//꼭 partial page로 읽어야할 이유가 있음???
+	//nand_page_ptread_to_host(bank, ori_ppa / PAGES_PER_BLK, ori_ppa % PAGES_PER_BLK, sect_offset, num_sectors_to_read);
+	nand_page_read(bank, get_pbn(ori_ppa), get_offset(ori_ppa), buf_addr);
 }
 
-void read_from_delta(UINT32 const bank, UINT32 delta_ppa)		//read delta to temp1 buffer
+void read_from_delta(UINT32 const bank, UINT32 const delta_ppa, UINT32 const buf_addr)		//read delta to temp1 buffer
 {
 	UINT32 delta_read_start;			//pointer(start of delta)
 	UINT32 pbn, offset;					//vbn of delta_ppa, offset of delta_ppa in vbn
@@ -511,10 +733,10 @@ void read_from_delta(UINT32 const bank, UINT32 delta_ppa)		//read delta to temp1
 	}
 	else
 	{
-		nand_page_read(bank, pbn, offset, TEMP_BUF_PTR(0));	//load from nand to temp_buffer
-		buf_ptr = TEMP_BUF_PTR(0);
+		nand_page_read(bank, pbn, offset, DELTA_TEMP_BUF_PTR(0));	//load from nand to temp_buffer
+		buf_ptr = DELTA_TEMP_BUF_PTR(0);
 	}
-	
+
 	delta_read_start = find_delta_data(TEMP_BUF_PTR(2), delta_ppa);		//find delta data in temp_buffer;
 	_lzf_decompress(delta_read_start, TEMP_BUF_PTR(1));
 
@@ -526,21 +748,24 @@ UINT32 in_protected_region()		//was ppa in slru protected region (before pop)
 	return 0;
 }
 
-UINT32 find_delta_data(UINT32 buf_ptr, UINT32 delta_ppa)		//find delta data in temp_buffer;
+UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const delta_ppa)		//find delta data in temp_buffer;
 {
 	UINT32 lpa, offset;
 	UINT32 i;
 
-	buf_ptr = buf_ptr + 32;			//lpa starts at buf_ptr + 32
+	//buf_ptr = buf_ptr + sizeof(UINT32);			//lpa starts at buf_ptr + 32
+	UINT32 offset = buf_ptr + sizeof(UINT32);
+	UINT32 delta_cnt = read_dram_32(buf_ptr);
 
-	for(i = 0; i < META_COUNT; i++)
+	for(i = 0; i < delta_cnt; i++)
 	{
-		lpa = read_dram_32(buf_ptr + i * 2 * sizeof(UINT32));
-		if(find_ppa(lpa) == delta_ppa)
+		lpa = read_dram_32(offset);
+		if(get_ppa_delta(lpa) == delta_ppa)
 			break;
+		offset = offset + sizeof(UINT32)*2;
 	}
 
-	if(i == META_COUNT)
+	if(i == delta_cnt)
 	{
 		return -1;
 	}
@@ -581,23 +806,23 @@ void _lzf_decompress (const void *const in_data, void *out_data)		//decompress d
 //write stream function (not in read stream function)
 void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 {
-    UINT32 remain_sects, num_sectors_to_write;
-    UINT32 lpa, sect_offset;
+	UINT32 remain_sects, num_sectors_to_write;
+	UINT32 lpa, sect_offset;
 
-    lpa          = lba / SECTORS_PER_PAGE;
-    sect_offset  = lba % SECTORS_PER_PAGE;
-    remain_sects = num_sectors;
+	lpa          = lba / SECTORS_PER_PAGE;
+	sect_offset  = lba % SECTORS_PER_PAGE;
+	remain_sects = num_sectors;
 	while(remain_sects != 0)
 	{
 		if ((sect_offset + remain_sects) < SECTORS_PER_PAGE)
-        {
-            num_sectors_to_write = remain_sects;
-        }
-        else
-        {
-            num_sectors_to_write = SECTORS_PER_PAGE - sect_offset;
-        }
-////////////////////////////////////////////////////////////////
+		{
+			num_sectors_to_write = remain_sects;
+		}
+		else
+		{
+			num_sectors_to_write = SECTORS_PER_PAGE - sect_offset;
+		}
+		////////////////////////////////////////////////////////////////
 		if(is_in_write_buffer())	//is in write buffer?
 		{
 			//버퍼 내용 수정 후 리턴
@@ -609,25 +834,26 @@ void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 			evict(lpa, sect_offset, num_sectors_to_write);		//write(not in write buffer)
 			//write input data in write buffer
 		}
-////////////////////////////////////////////////////////////////
+		////////////////////////////////////////////////////////////////
 
 		sect_offset = 0;
 		remain_sects -= num_sectors_to_write;
-        lpa++;
+		lpa++;
 	}
 }
 
 static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_sectors)				//write(not in write buffer)
-{	
+{
 	UINT32 bank, old_ppa, new_ppa;
-    UINT32 vblock, page_num, page_offset, column_cnt;
+	UINT32 vblock, page_num, page_offset, column_cnt;
 
-    bank        = lpa % NUM_BANKS; // page striping
-    page_offset = sect_offset;
-    column_cnt  = num_sectors;
+	bank        = lpa % NUM_BANKS; // page striping
+	page_offset = sect_offset;
+	column_cnt  = num_sectors;
 
-    old_ppa  = get_data_ppa(bank, lpa);
+	old_ppa  = get_data_ppa(bank, lpa);
 
+	/*
 	if(is_in_cache())		//is in cache?
 	{
 		//find ppa in cache
@@ -652,23 +878,23 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 			save_original_data();		//save original data
 			set_data_ppa(bank, lpa, new_ppa);
 		}
-		
+
 		//pop and push in first slru(protected) slot
-		
+
 	}
-	else				//not in cache
+	else				//not in cache*/
 	{
 		//find ppa in page and make cache node ->이거도 위에서 구해놓음(캐시 구현하면 밀어넣어야됨)
-		
+
 		load_original_data_write(bank, old_ppa, sect_offset, num_sectors);			//load original data
-		
+
 		new_ppa = get_free_page(bank);				//get free page
 		save_original_data(bank, new_ppa, page_offset, column_cnt);			//save original data
 		set_data_ppa(bank, lpa, new_ppa);
 
 		//pop and push in first slru(probational) slot
 	}
-	
+
 }
 
 /*
@@ -676,89 +902,89 @@ static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa)
 {
     write_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)), ppa);
 }
-*/
+ */
 
 void load_original_data_write(UINT32 bank, UINT32 old_ppa, UINT32 page_offset, UINT32 num_sectors)		//load original data
 {
 	UINT32 vblock;
 	UINT32 page_num;
-    if (old_ppa != NULL)
-    {
-        vblock   = get_pbn(old_ppa);
-        page_num = get_offset(old_ppa);
+	if (old_ppa != NULL)
+	{
+		vblock   = get_pbn(old_ppa);
+		page_num = get_offset(old_ppa);
 
-        if (num_sectors != SECTORS_PER_PAGE)
-        {
-            if ((num_sectors <= 8) && (page_offset != 0))
-            {
-                // one page async read
-                nand_page_read(bank, vblock, page_num, FTL_BUF(bank));
-                // copy `left hole sectors' into SATA write buffer
-                if (page_offset != 0)
-                {
-                    mem_copy(WR_BUF_PTR(g_ftl_write_buf_id),
-                             FTL_BUF(bank),
-                             page_offset * BYTES_PER_SECTOR);
-                }
-                // copy `right hole sectors' into SATA write buffer
-                if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
-                {
-                    UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
+		if (num_sectors != SECTORS_PER_PAGE)
+		{
+			if ((num_sectors <= 8) && (page_offset != 0))
+			{
+				// one page async read
+				nand_page_read(bank, vblock, page_num, FTL_BUF(bank));
+				// copy `left hole sectors' into SATA write buffer
+				if (page_offset != 0)
+				{
+					mem_copy(WR_BUF_PTR(g_ftl_write_buf_id),
+							FTL_BUF(bank),
+							page_offset * BYTES_PER_SECTOR);
+				}
+				// copy `right hole sectors' into SATA write buffer
+				if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
+				{
+					UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
 
-                    mem_copy(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base,
-                             FTL_BUF(bank) + rhole_base,
-                             BYTES_PER_PAGE - rhole_base);
-                }
-            }
-            // left/right hole async read operation (two partial page read)
-            else
-            {
-                // read `left hole sectors'
-                if (page_offset != 0)
-                {
-                    nand_page_ptread(bank,
-                                     vblock,
-                                     page_num,
-                                     0,
-                                     page_offset,
-                                     WR_BUF_PTR(g_ftl_write_buf_id),
-                                     RETURN_ON_ISSUE);
-                }
-                // read `right hole sectors'
-                if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
-                {
-                    nand_page_ptread(bank,
-                                     vblock,
-                                     page_num,
-                                     page_offset + num_sectors,
-                                     SECTORS_PER_PAGE - (page_offset + num_sectors),
-                                     WR_BUF_PTR(g_ftl_write_buf_id),
-                                     RETURN_ON_ISSUE);
-                }
-            }
-        }
-        // full page write
-        page_offset = 0;
-        num_sectors  = SECTORS_PER_PAGE;
-        // invalid old page (decrease vcount)
-        set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
-    }else
+					mem_copy(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base,
+							FTL_BUF(bank) + rhole_base,
+							BYTES_PER_PAGE - rhole_base);
+				}
+			}
+			// left/right hole async read operation (two partial page read)
+			else
+			{
+				// read `left hole sectors'
+				if (page_offset != 0)
+				{
+					nand_page_ptread(bank,
+							vblock,
+							page_num,
+							0,
+							page_offset,
+							WR_BUF_PTR(g_ftl_write_buf_id),
+							RETURN_ON_ISSUE);
+				}
+				// read `right hole sectors'
+				if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
+				{
+					nand_page_ptread(bank,
+							vblock,
+							page_num,
+							page_offset + num_sectors,
+							SECTORS_PER_PAGE - (page_offset + num_sectors),
+							WR_BUF_PTR(g_ftl_write_buf_id),
+							RETURN_ON_ISSUE);
+				}
+			}
+		}
+		// full page write
+		page_offset = 0;
+		num_sectors  = SECTORS_PER_PAGE;
+		// invalid old page (decrease vcount)
+		set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
+	}else
 	{
 		if (page_offset != 0)
 		{
-            mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id),
-                        0,
-                        page_offset * BYTES_PER_SECTOR);
-        }
-        // copy `right hole sectors' into SATA write buffer
-        if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
-        {
-            UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
+			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id),
+					0,
+					page_offset * BYTES_PER_SECTOR);
+		}
+		// copy `right hole sectors' into SATA write buffer
+		if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
+		{
+			UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
 
-            mem_copy(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base,
-                        0,
-                        BYTES_PER_PAGE - rhole_base);
-        }
+			mem_copy(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base,
+					0,
+					BYTES_PER_PAGE - rhole_base);
+		}
 	}
 }
 
@@ -788,7 +1014,7 @@ UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa)	//write to delta write buff
 			save_delta_page(bank, delta_page);				//save delta page
 			next_delta_meta[bank] = DELTA_BUF + sizeof(UINT32);		//initialize delta and meta pointer
 			next_delta_data[bank] = DELTA_BUF + (2 * META_COUNT + 1) * sizeof(UINT32)
-			put_delta(bank, cs);					//put compressed delta in delta write buffer
+					put_delta(bank, cs);					//put compressed delta in delta write buffer
 			return 0;
 		}
 	}
@@ -810,7 +1036,7 @@ UINT32 get_free_page(UINT32 const bank)				//get free page
 	{
 		nand_page_program(bank, g_next_free_page[bank] / PAGES_PER_BLK, PAGES_PER_BLK - 1, LPA_BUF(bank));
 
-		UINT32 pbn = get_rsrv_pbn(bank);
+		UINT32 pbn = get_rsrv_pbn(bank, FALSE);
 		g_next_free_page[bank] = pbn * PAGES_PER_BLK;
 		/*
 		버퍼 하나 잡아서
@@ -820,7 +1046,7 @@ UINT32 get_free_page(UINT32 const bank)				//get free page
 		get_rsrv_vbn[bank];
 
 		g_next_free_page[bank] = 새로 가져온 블락의 첫 페이지
-		*/
+		 */
 	}
 
 	return g_next_free_page[bank];
@@ -932,39 +1158,39 @@ static UINT32 get_rsrv_pbn(UINT32 const bank, BOOL32 const gc)
 			//gc
 			garbage_collection(bank);
 		}
-    //ASSERT(g_misc_meta[bank].rsrv_blk_cnt > 0);
+	//ASSERT(g_misc_meta[bank].rsrv_blk_cnt > 0);
 
-    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_tail;
-    g_misc_meta[bank].rsrv_list_tail = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
-    g_misc_meta[bank].rsrv_blk_cnt--;
-    return read_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16));
+	UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_tail;
+	g_misc_meta[bank].rsrv_list_tail = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
+	g_misc_meta[bank].rsrv_blk_cnt--;
+	return read_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16));
 }
 static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock)
 {
-    ASSERT(g_misc_meta[bank].rsrv_blk_cnt <= RSRV_BLK_PER_BANK);
-    ASSERT(vblock < VBLKS_PER_BANK);
-    ASSERT(is_bad_block(bank, vblock) == FALSE);
+	ASSERT(g_misc_meta[bank].rsrv_blk_cnt <= RSRV_BLK_PER_BANK);
+	ASSERT(vblock < VBLKS_PER_BANK);
+	ASSERT(is_bad_block(bank, vblock) == FALSE);
 
-    UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_head;
-    write_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16), vblock);
-    g_misc_meta[bank].rsrv_list_head = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
-    g_misc_meta[bank].rsrv_blk_cnt++;
+	UINT32 rsrv_blk_offset = g_misc_meta[bank].rsrv_list_head;
+	write_dram_16(RSRV_BMT_ADDR + ((bank * RSRV_BLK_PER_BANK)+ rsrv_blk_offset) * sizeof(UINT16), vblock);
+	g_misc_meta[bank].rsrv_list_head = (rsrv_blk_offset + 1) % RSRV_BLK_PER_BANK;
+	g_misc_meta[bank].rsrv_blk_cnt++;
 }
 
 // get data ppa from data page mapping table
 static UINT32 get_data_ppa(UINT32 const bank, UINT32 const lpa)
 {
-    ASSERT(lpa < DATA_PAGES_PER_BANK);
+	ASSERT(lpa < DATA_PAGES_PER_BANK);
 
-    return read_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)));
+	return read_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)));
 }
 // set data ppa to data page mapping table
 static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa)
 {
-    ASSERT(lpa < DATA_BLK_PER_BANK);
-    ASSERT(ppa < VBLKS_PER_BANK * PAGES_PER_BLK);
+	ASSERT(lpa < DATA_BLK_PER_BANK);
+	ASSERT(ppa < VBLKS_PER_BANK * PAGES_PER_BLK);
 
-    write_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)), ppa);
+	write_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)), ppa);
 }
 
 UINT32 rand()
@@ -1076,7 +1302,8 @@ static void garbage_collection(UINT32 const bank)
 				if(lpa != INVAL)
 				{
 					//INVALID가 아니라도 쓰고 나서 또 바뀌었을 수 있으니까 첵첵!
-					if(is_in_delta_map(lpa, victim * PAGES_PER_BLK + offset) == TRUE)
+					//if(is_in_delta_map(lpa, victim * PAGES_PER_BLK + offset) == TRUE)
+					if(get_ppa_delta(lpa) == ppa)
 					{
 						//요놈이 진짜 밸리드한 델타임
 						/*
@@ -1089,7 +1316,7 @@ static void garbage_collection(UINT32 const bank)
 						 * offset 정보는 얻는데, 압축을 풀필요는 없을거같아
 						 * 압축안풀고 그 자료 그대로 옮기는게 delta_copy
 						 * ;
-						*/
+						 */
 
 						delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
 						delta_copy(bank, lpa, delta_data_offset);
@@ -1145,6 +1372,7 @@ void delta_copy(UINT32 bank, UINT32 lpa, UINT32 offset)
 	}
 }
 
+/*
 static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa)
 {
 	UINT32 delta_page = 0;
@@ -1165,7 +1393,12 @@ static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa)
 	//못찾음
 	return FALSE;
 }
+ */
 
+/*lpa를 받아서 델타 매핑을 뒤져서
+ * 델타 ppa를 반환
+ * 없으면 인밸
+ */
 static UINT32 get_ppa_delta(UINT32 const lpa)
 {
 	int offset = (int)g_delta_pmt_pointer;
@@ -1175,10 +1408,10 @@ static UINT32 get_ppa_delta(UINT32 const lpa)
 		{
 			offset = NUM_MAX_DELTA_PAGES - 1;
 		}
-		
-		if(lpa == read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * 2 * offset))
+
+		if(lpa == get_delta_lpa(offset))//read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * 2 * offset))
 		{
-			return read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (2 * offset + 1));
+			return get_delta_ppa(offset);//read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (2 * offset + 1));
 		}
 	}
 	return INVAL;
@@ -1197,7 +1430,7 @@ static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, U
 	UINT32 ppa_ori = set_valid_ppa(get_data_ppa(bank, lpa));
 
 	//델타랑 오리지널 읽어옴
-	read_from_delta(bank, ppa_delta, lpa);
+	read_from_delta(bank, ppa_delta, lpa, TEMP_BUF_PTR(1));
 	nand_page_read(bank, get_pbn(ppa_ori), get_offset(ppa_ori), TEMP_BUF_PTR(0));
 
 	//read_from_delta????
@@ -1216,7 +1449,7 @@ static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, U
 	set_data_ppa(bank, lpa, set_valid(ppa_ori));
 
 	그러고 나서 델타 페이지 매핑에다가 새로 쓸 놈 쓰면 됨
-*/
+ */
 
 static void xor_buffer(const UINT32 src0, const UINT32 src1, const UINT32 dst)
 {
@@ -1225,9 +1458,9 @@ static void xor_buffer(const UINT32 src0, const UINT32 src1, const UINT32 dst)
 
 	for(i = 0; i < BYTES_PER_PAGE; i = i + sizeof(UINT32))
 	{
-			temp0 = read_dram_32(src0 + i);
-			temp1 = read_dram_32(src1 + i);
-			temp0 = temp0 ^ temp1;
-			write_dram_32(dst + i, temp0);
+		temp0 = read_dram_32(src0 + i);
+		temp1 = read_dram_32(src1 + i);
+		temp0 = temp0 ^ temp1;
+		write_dram_32(dst + i, temp0);
 	}
 }
