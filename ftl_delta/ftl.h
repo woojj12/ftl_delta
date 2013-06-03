@@ -29,9 +29,8 @@
 #define FTL_H
 
 //JJ
-#include "delta.h"
 
-#define SLRU_SIZE                             			128
+#define SLRU_SIZE                                                          		128
 #define PROTECTED_SEG_SIZE		64
 #define PROBATIONAL_SEG_SIZE	(SLRU_SIZE - PROTECTED_SEG_SIZE)
 
@@ -42,10 +41,10 @@
 #define NUM_RW_BUFFERS		((DRAM_SIZE - DRAM_BYTES_OTHER) / BYTES_PER_PAGE - 1)
 #define NUM_RD_BUFFERS		(((NUM_RW_BUFFERS / 8) + NUM_BANKS - 1) / NUM_BANKS * NUM_BANKS)
 #define NUM_WR_BUFFERS		(NUM_RW_BUFFERS - NUM_RD_BUFFERS)
-#define NUM_COPY_BUFFERS	NUM_BANKS_MAX
+#define NUM_COPY_BUFFERS		NUM_BANKS_MAX
 #define NUM_FTL_BUFFERS		NUM_BANKS
 #define NUM_HIL_BUFFERS		1
-#define NUM_TEMP_BUFFERS	3
+#define NUM_TEMP_BUFFERS		3
 #define NUM_DELTA_BUFFERS	1
 #define NUM_LPA_BUFFERS		NUM_BANKS
 #define NUM_GC_BUFFERS		2
@@ -87,9 +86,9 @@
 #define FTL_BUF_BYTES		(NUM_FTL_BUFFERS * BYTES_PER_PAGE)
 
 #define HIL_BUF_ADDR		(FTL_BUF_ADDR + FTL_BUF_BYTES)					// a buffer dedicated to HIL internal purpose
-#define HIL_BUF_BYTES		(NUM_HIL_BUFFERS * BYTES_PER_PAGE)
+#define HIL_BUF_BYTES		(NUM_FTL_BUFFERS * BYTES_PER_PAGE)//(NUM_HIL_BUFFERS * BYTES_PER_PAGE)
 
-#define TEMP_BUF_ADDR		(HIL_BUF_ADDR + HIL_BUF_BYTES)					// general purpose buffer
+#define TEMP_BUF_ADDR		(FTL_BUF_ADDR + FTL_BUF_BYTES)//(HIL_BUF_ADDR + HIL_BUF_BYTES)					// general purpose buffer
 #define TEMP_BUF_BYTES		(NUM_TEMP_BUFFERS * BYTES_PER_PAGE)
 
 #define DELTA_BUF_ADDR		(TEMP_BUF_ADDR + TEMP_BUF_BYTES)
@@ -103,6 +102,9 @@
 
 #define BAD_BLK_BMP_ADDR	(GC_BUF_ADDR + GC_BUF_BYTES)				// bitmap of initial bad blocks
 #define BAD_BLK_BMP_BYTES	(((NUM_VBLKS / 8) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
+
+#define DATA_PMT_ADDR		(BAD_BLK_BMP_ADDR + BAD_BLK_BMP_BYTES)
+#define DATA_PMT_BYTES      ((NUM_MAX_ORI_PAGES * sizeof(UINT32) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 
 /******** FTL metadata ********/
 
@@ -135,14 +137,11 @@
 #define NUM_MAX_ORI_PAGES_PER_BANK		(NUM_MAX_ORI_PAGES / NUM_BANKS)
 #define DATA_PAGES_PER_BANK		NUM_MAX_ORI_PAGES_PER_BANK
 
-#define DATA_PMT_ADDR		(BAD_BLK_BMP_ADDR + BAD_BLK_BMP_BYTES)
-#define DATA_PMT_BYTES      ((NUM_MAX_ORI_PAGES * sizeof(UINT32) + DRAM_ECC_UNIT - 1) / DRAM_ECC_UNIT * DRAM_ECC_UNIT)
-
 #define NUM_MAX_DELTA_PAGES				(NUM_MAPPED_BLK * PAGES_PER_BLK - NUM_MAX_ORI_PAGES)	//요거 DTA_BLK가 뭔지 모르겠다 데이터나 델타로 추측해도 정의가 안되있네
 #define NUM_MAX_DELTA_PAGES_PER_BANK	(NUM_MAX_DELTA_PAGES / NUM_BANKS)
 
 #define DELTA_PMT_ADDR	(DATA_PMT_ADDR + DATA_PMT_BYTES)
-#define DELTA_PMT_BYTES	(NUM_MAX_DELTA_PAGES * sizeof(UINT32) * 2 + DRAM_ECC_UNIT - 1) /DRAM_ECC_UNIT * DRAM_ECC_UNIT)
+#define DELTA_PMT_BYTES	((NUM_MAX_DELTA_PAGES * sizeof(UINT32) * 2 + DRAM_ECC_UNIT - 1) /DRAM_ECC_UNIT * DRAM_ECC_UNIT)
 
 #define NUM_RSRV_BLK			((NUM_RSRV_BLK + NUM_BANKS - 1) / NUM_BANKS)    //요거 자기가 자기부름
 //initially, all data blks are rsrv blk
