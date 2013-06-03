@@ -1150,6 +1150,26 @@ static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa)
 	return FALSE;
 }
 
+UINT32 g_delta_pmt_pointer;
+
+static UINT32 get_ppa_delta(UINT32 const bank, UINT32 const lpa)
+{
+	INT32 offset = g_delta_pmt_pointer;
+	for(; offset != g_delta_pmt_pointer + 1; offset = offset - 1)
+	{
+		if(offset == -1)
+		{
+			offset = NUM_MAX_DELTA_PAGES - 1;
+		}
+		
+		if(lpa == read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * 2 * offset))
+		{
+			return read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (2 * offset + 1));
+		}
+	}
+	return INVAL;
+}
+
 //ㅋ캐시를 안쓰게 되면서
 //merge하는 상황이 델타 매핑이 다 찼을때랑
 //read 할 때 합친 값을 넘겨주는 상황 두가지임
