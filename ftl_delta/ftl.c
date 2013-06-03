@@ -91,8 +91,10 @@ static misc_metadata  g_misc_meta[NUM_BANKS];
 #define get_delta_ppa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1))
 #define get_delta_lpa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2)
 static void xor_buffer(const UINT32 src0, const UINT32 src1, const UINT32 dst);
-static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta);
+static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, UINT32 const buf_ptr);
 UINT32 g_next_free_page[NUM_BANKS];
+UINT32 g_delta_pmt_pointer;
+static UINT32 get_ppa_delta(UINT32 const lpa);
 
 static void sanity_check(void)
 {
@@ -432,7 +434,18 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 			{
 				//find ppn in page and make cache node -> 위에서 구해놓음(캐시 구현하면 밀어넣어야됨)
 				//pop and push in first slru(probational) slot -> 일단없음
-				load_original_data(bank, ppa, sect_offset, num_sectors_to_read);	//load original data -> 델타없는거니 nand read만하면될듯
+				
+				if(is_valid_PPA(ppa) == TRUE)
+				{
+					//no delta
+					load_original_data(bank, ppa, sect_offset, num_sectors_to_read, RD_BUF_PTR(g_ftl_read_buf_id));	//load original data -> 델타없는거니 nand read만하면될듯
+				}
+				else
+				{
+					//there is delta
+					merge(bank, lpa, get_ppa_delta(lpa), RD_BUF_PTR(g_ftl_read_buf_id));
+				}
+				g_ftl_read_buf_id = next_read_buf_id;
 			}
 ////////////////////////////////////////////////////////////////
 		}
@@ -1150,11 +1163,9 @@ static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa)
 	return FALSE;
 }
 
-UINT32 g_delta_pmt_pointer;
-
-static UINT32 get_ppa_delta(UINT32 const bank, UINT32 const lpa)
+static UINT32 get_ppa_delta(UINT32 const lpa)
 {
-	INT32 offset = g_delta_pmt_pointer;
+	int offset = (int)g_delta_pmt_pointer;
 	for(; offset != g_delta_pmt_pointer + 1; offset = offset - 1)
 	{
 		if(offset == -1)
@@ -1177,8 +1188,9 @@ static UINT32 get_ppa_delta(UINT32 const bank, UINT32 const lpa)
 //나머지는 여기서 알아서
 //버퍼는 일단 템프버퍼로 할게
 //나중에 코드 더 진행되야 템프버퍼 써도 되는지 못쓰는지 알 수 있을것 같아
-static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta)
+static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, UINT32 const buf_ptr)
 {
+	ASSERT(ppa_delta != INVAL);
 	UINT32 ppa_ori = set_valid_PPA(get_data_ppa(bank, lpa));
 
 	//델타랑 오리지널 읽어옴
@@ -1188,7 +1200,7 @@ static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta)
 	//read_from_delta????
 
 	//xor 해서 템프버프0에 저장
-	xor_buffer(TEMP_BUF_PTR(0), TEMP_BUF_PTR(1), TEMP_BUF_PTR(0));
+	xor_buffer(TEMP_BUF_PTR(0), TEMP_BUF_PTR(1), buf_ptr);
 }
 
 /*
