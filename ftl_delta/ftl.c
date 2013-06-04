@@ -35,17 +35,19 @@ static void format(void);
 static void sanity_check(void);
 static void build_bad_blk_list(void);
 static void format(void);
-static BOOL32 check_format_mark(void);				//in greedy
-static void write_format_mark(void);				//in greedy
+//static BOOL32 check_format_mark(void);				//in greedy
+//static void write_format_mark(void);				//in greedy
 //static void load_metadata(void);
 static void init_metadata_sram(void);
 
 //read stream function
 UINT32 is_in_write_buffer(void);		//is in write buffer?
 UINT32 is_in_cache(void);			//is in cache?
-static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 const sect_offset, UINT32 const num_sectors_to_read);		//load original data
+//static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 const sect_offset, UINT32 const num_sectors_to_read);		//load original data
+static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 const sect_offset, UINT32 const num_sectors_to_read, UINT32 const buf_addr);
 
-void read_from_delta(UINT32 const bank, UINT32 delta_ppa);		//read delta
+//void read_from_delta(UINT32 const bank, UINT32 delta_ppa);		//read delta
+void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const buf_addr);		//read delta to buf_addr
 UINT32 in_protected_region();		//was ppa in slru protected region (before pop)
 UINT32 find_delta_data(UINT32 buf_ptr, UINT32 delta_ppa);		//find delta data in temp_buffer;
 void _lzf_decompress (const void *const in_data, void *out_data);		//decompress data
@@ -138,8 +140,8 @@ void ftl_open(void)
 	// If necessary, do low-level format
 	// format() should be called after loading scan lists, because format() calls is_bad_block().
 	//----------------------------------------
-	if (check_format_mark() == FALSE)
-		//	if (TRUE)
+	//if (check_format_mark() == FALSE)
+	if (TRUE)
 	{
 		uart_print("do format");
 		format();
@@ -148,7 +150,7 @@ void ftl_open(void)
 	// load FTL metadata
 	else
 	{
-		load_metadata();
+		//load_metadata();
 	}
 	g_ftl_read_buf_id = 0;
 	g_ftl_write_buf_id = 0;
@@ -251,13 +253,13 @@ static void format(void)
 	init_metadata_sram();
 
 	// flush FTL metadata into NAND flash
-	ftl_flush();
+	//ftl_flush();
 
-	write_format_mark();
+	//write_format_mark();
 	led(1);
 	uart_print("format complete");
 }
-
+/*
 static BOOL32 check_format_mark(void)
 {
 	// This function reads a flash page from (bank #0, block #0) in order to check whether the SSD is formatted or not.
@@ -311,7 +313,8 @@ static BOOL32 check_format_mark(void)
 		return TRUE;	// the page contains something other than 0xFF (it must be the format mark)
 	}
 }
-
+*/
+/*
 static void write_format_mark(void)
 {
 	// This function writes a format mark to a page at (bank #0, block #0).
@@ -349,7 +352,7 @@ static void write_format_mark(void)
 	// wait until bank #0 finishes the write operation
 	while (BSP_FSM(0) != BANK_IDLE);
 }
-
+*/
 static void init_metadata_sram(void)
 {
 	for (UINT32 bank = 0; bank < NUM_BANKS; bank++) {
@@ -718,7 +721,7 @@ static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 c
 	nand_page_read(bank, get_pbn(ori_ppa), get_offset(ori_ppa), buf_addr);
 }
 
-void read_from_delta(UINT32 const bank, UINT32 const delta_ppa, UINT32 const buf_addr)		//read delta to temp1 buffer
+void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const dst_buf)		//read delta to buf_addr
 {
 	UINT32 delta_read_start;			//pointer(start of delta)
 	UINT32 pbn, offset;					//vbn of delta_ppa, offset of delta_ppa in vbn
@@ -737,8 +740,8 @@ void read_from_delta(UINT32 const bank, UINT32 const delta_ppa, UINT32 const buf
 		buf_ptr = DELTA_TEMP_BUF_PTR(0);
 	}
 
-	delta_read_start = find_delta_data(TEMP_BUF_PTR(2), delta_ppa);		//find delta data in temp_buffer;
-	_lzf_decompress(delta_read_start, TEMP_BUF_PTR(1));
+	delta_read_start = find_delta_data(buf_ptr, delta_ppa);		//find delta data in temp_buffer;
+	_lzf_decompress(delta_read_start, dst_buf);
 
 	return;
 }
@@ -1012,8 +1015,8 @@ UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa)	//write to delta write buff
 		{
 			delta_page = get_free_page(bank);				//get free page
 			save_delta_page(bank, delta_page);				//save delta page
-			next_delta_meta[bank] = DELTA_BUF + sizeof(UINT32);		//initialize delta and meta pointer
-			next_delta_data[bank] = DELTA_BUF + (2 * META_COUNT + 1) * sizeof(UINT32)
+			next_delta_meta[bank] = DELTA_BUF(bank) + sizeof(UINT32);		//initialize delta and meta pointer
+			next_delta_data[bank] = DELTA_BUF(bank) + (2 * META_COUNT + 1) * sizeof(UINT32)
 					put_delta(bank, cs);					//put compressed delta in delta write buffer
 			return 0;
 		}
@@ -1318,7 +1321,7 @@ static void garbage_collection(UINT32 const bank)
 						 * ;
 						 */
 
-						delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
+						UINT32 delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
 						delta_copy(bank, lpa, delta_data_offset);
 					}
 					else
@@ -1430,7 +1433,7 @@ static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, U
 	UINT32 ppa_ori = set_valid_ppa(get_data_ppa(bank, lpa));
 
 	//델타랑 오리지널 읽어옴
-	read_from_delta(bank, ppa_delta, lpa, TEMP_BUF_PTR(1));
+	read_from_delta(bank, lpa, ppa_delta, TEMP_BUF_PTR(1));
 	nand_page_read(bank, get_pbn(ppa_ori), get_offset(ppa_ori), TEMP_BUF_PTR(0));
 
 	//read_from_delta????
