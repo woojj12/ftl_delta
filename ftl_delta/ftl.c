@@ -9,7 +9,7 @@
 
 
 #define MAX_COMPRESS_SIZE	(BYTES_PER_PAGE / 2)//2048				//MAX COMPRESS SIZE : 2K(50%)
-#define META_COUNT			10
+#define MAX_DELTAS_PER_PAGE			10
 #define MIN_RSRV_BLK		5
 
 #define VAL	0x7fff
@@ -92,8 +92,8 @@ static misc_metadata  g_misc_meta[NUM_BANKS];
 #define CHECK_VPAGE(vpn)                     ASSERT((vpn) < (NUM_BANKS * VBLKS_PER_BANK * PAGES_PER_BLK))
 #define get_delta_ppa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1))
 #define get_delta_lpa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2)
-static void xor_buffer(const UINT32 src0, const UINT32 src1, const UINT32 dst);
-static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, UINT32 const buf_ptr);
+static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst);
+static void merge(UINT32 const bank, UINT32 const lpa, UINT32 const ppa_delta, UINT32 const buf_ptr);
 UINT32 g_next_free_page[NUM_BANKS];
 UINT32 g_delta_pmt_pointer;
 static UINT32 get_ppa_delta(UINT32 const lpa);
@@ -999,11 +999,11 @@ UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa)	//write to delta write buff
 	UINT32 delta_page;
 
 
-	if((cs = _lzf_compress(TEMP_BUF(2), TEMP_BUF(1))) <= MAX_COMPRESS_SIZE)			//try lzf compress and compressed
+	if((cs = _lzf_compress(TEMP_BUF_PTR(2), TEMP_BUF_PTR(1))) <= MAX_COMPRESS_SIZE)			//try lzf compress and compressed
 	{
 		if(is_remain_delta_buffer(bank, cs))	//is remain delta_write_buffer?
 		{
-			inv_delta = find_delta_data(TEMP_BUF(1), delta_ppa);
+			inv_delta = find_delta_data(TEMP_BUF_PTR(1), delta_ppa);
 			if(inv_delta != -1)
 			{
 				write_dram_32(inv_delta, -1);	//invalid prev delta
@@ -1016,8 +1016,8 @@ UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa)	//write to delta write buff
 			delta_page = get_free_page(bank);				//get free page
 			save_delta_page(bank, delta_page);				//save delta page
 			next_delta_meta[bank] = DELTA_BUF(bank) + sizeof(UINT32);		//initialize delta and meta pointer
-			next_delta_data[bank] = DELTA_BUF(bank) + (2 * META_COUNT + 1) * sizeof(UINT32)
-					put_delta(bank, cs);					//put compressed delta in delta write buffer
+			next_delta_data[bank] = DELTA_BUF(bank) + (2 * MAX_DELTAS_PER_PAGE + 1) * sizeof(UINT32);
+			put_delta(bank, cs);					//put compressed delta in delta write buffer
 			return 0;
 		}
 	}
@@ -1093,7 +1093,7 @@ UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs)	//is remain in delta_buffe
 	{
 		return 0;
 	}
-	if(next_delta_meta[bank] / (2 * sizeof(UINT32)) == META_COUNT)
+	if(next_delta_meta[bank] / (2 * sizeof(UINT32)) == MAX_DELTAS_PER_PAGE)
 	{
 		return 0;
 	}
@@ -1102,15 +1102,16 @@ UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs)	//is remain in delta_buffe
 
 }
 
-void save_delta_page(UINT32 bank, UINT32 delta_ppa)		//save delta page in flash
+void save_delta_page(UINT32 const bank, UINT32 const delta_ppa)		//save delta page in flash
 {
 	UINT32 i;
 	UINT32 lpa, ppa;
 	UINT32 pbn, offset;
-	for(i = 0; i < META_SIZE; i++)
+	UINT32 cnt = read_dram_32(DELTA_BUF(bank));
+	for(i = 0; i < cnt; i++)
 	{
-		lpa = read_dram_32(DELTA_BUF(bank) + i * 2 * sizeof(UINT32));
-		ppa = find_ppa(lpa);
+		lpa = read_dram_32(DELTA_BUF(bank) + (i * 2 + 1) * sizeof(UINT32));
+		ppa = get_ppa_delta(lpa);
 		//assign delta ppa page to ppa->delta_ppa
 	}
 	pbn = get_pbn(delta_ppa);
@@ -1122,9 +1123,9 @@ void save_delta_page(UINT32 bank, UINT32 delta_ppa)		//save delta page in flash
 void put_delta(UINT32 bank, UINT32 cs)			//put delta data in delta_buffer
 {
 	UINT16 header;
-	write_dram_16(next_delta_meta[bank], cs);
-	write_dram_16(next_delta_meta[bank] + 16, PAGE_SIZE);
-	next_delta_meta[bank] = next_delta_meta[bank] + 16;
+	write_dram_32(next_delta_meta[bank], cs);
+	write_dram_32(next_delta_meta[bank] + sizeof(UINT32), PAGE_SIZE);
+	next_delta_meta[bank] = next_delta_meta[bank] + sizeof(UINT32);
 	mem_copy(next_delta_offset[bank], TEMP_BUF(1), cs);
 	next_delta_offset[bank] = next_delta_offset[bank] + (cs + sizeof(UINT32)-1) / sizeof(UINT32) * sizeof(UINT32);
 }
@@ -1427,7 +1428,7 @@ static UINT32 get_ppa_delta(UINT32 const lpa)
 //나머지는 여기서 알아서
 //버퍼는 일단 템프버퍼로 할게
 //나중에 코드 더 진행되야 템프버퍼 써도 되는지 못쓰는지 알 수 있을것 같아
-static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, UINT32 const buf_ptr)
+static void merge(UINT32 const bank, UINT32 const lpa, UINT32 const ppa_delta, UINT32 const buf_ptr)
 {
 	ASSERT(ppa_delta != INVAL);
 	UINT32 ppa_ori = set_valid_ppa(get_data_ppa(bank, lpa));
@@ -1454,7 +1455,7 @@ static void merge(const UINT32 bank, const UINT32 lpa, const UINT32 ppa_delta, U
 	그러고 나서 델타 페이지 매핑에다가 새로 쓸 놈 쓰면 됨
  */
 
-static void xor_buffer(const UINT32 src0, const UINT32 src1, const UINT32 dst)
+static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst)
 {
 	UINT32 i;
 	UINT32 temp0, temp1;
