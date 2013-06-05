@@ -1,7 +1,7 @@
 //사용법
 //함수명 리스트를 적고, 그 다음 똑같은 순서로 함수명을 다시 적은뒤 그 함수들을 코딩하자
 //
-//함수 작성 완료되면 함수 정의부분의 주석에 "complte" 추가하자
+//함수 작성 완료되면 함수 정의부분의 주석에 "complete" 추가하자
 
 
 #include "jasmine.h"
@@ -94,7 +94,9 @@ static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst);
 static void merge(UINT32 const bank, UINT32 const lpa, UINT32 const ppa_delta, UINT32 const buf_ptr);
 UINT32 g_next_free_page[NUM_BANKS];
 UINT32 g_delta_pmt_pointer;
-static UINT32 get_ppa_delta(UINT32 const lpa);
+#define get_ppa_delta(LPA)		get_delta_ppa(get_delta_map_offset(LPA))
+static UINT32 get_delta_map_offset(UINT32 const lpa);
+//static UINT32 get_ppa_delta(UINT32 const lpa);
 
 static void sanity_check(void)
 {
@@ -666,10 +668,26 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 
 static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa, UINT32 new_ppa)
 {
-	UINT32 offset = (g_delta_pmt_pointer + 1) % NUM_MAX_DELTA_PAGES;
+	UINT32 offset;
+	UINT32 new_ppa = 0;
+	GET_NEXT_DELTA_TABLE_SPACE_START:
+
+	offset = (g_delta_pmt_pointer + 1) % NUM_MAX_DELTA_PAGES;
 	//g_delta_pmt_pointer = (g_delta_pmt_pointer + 1) % NUM_MAX_DELTA_PAGES;
 	UINT32 old_delta_ppa = get_delta_ppa(g_delta_pmt_pointer);
 	UINT32 old_delta_lpa = get_delta_lpa(g_delta_pmt_pointer);
+	if(old_delta_ppa == 0)
+	{
+		/*
+		 * 지금 가리킨 놈이 하필 버퍼에 있는놈임
+		 * 얘를 빼고 어쩌고 하면 복잡해 지니까
+		 * 그냥 다음에서 찾도록 하자
+		 */
+		g_delta_pmt_pointer = offset;
+		goto GET_NEXT_DELTA_TABLE_SPACE_START;
+
+	}
+
 	if((is_valid_ppa(old_delta_ppa) == FALSE)\
 			|| (old_delta_lpa == lpa))
 	{
@@ -677,6 +695,10 @@ static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa, UI
 		 * 지금 포인터가 가리키는 엔트리가 인밸리드한 놈이면
 		 * 아니면 지금 포인터가 가리키는 엔트리가 지금 쓰려고 하는놈이랑 같은 lpa이면
 		 * 그 위치에다 그냥 덮어 쓰면 됨
+		 */
+		/*
+		 * 인밸리드 한 놈이라는건
+		 * 그 델타 매핑 테이블 칸에 처음 쓰는거란 의미!
 		 */
 		g_delta_pmt_pointer = offset;
 		return g_delta_pmt_pointer;
@@ -729,95 +751,9 @@ static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa, UI
 	}
 }
 
-void load_original_data_write(UINT32 bank, UINT32 old_ppa, UINT32 page_offset, UINT32 num_sectors)		//load original data
-{
-	UINT32 vblock;
-	UINT32 page_num;
-	if (old_ppa != NULL)
-	{
-		vblock   = get_pbn(old_ppa);
-		page_num = get_offset(old_ppa);
-
-		if (num_sectors != SECTORS_PER_PAGE)
-		{
-			// left/right hole async read operation (two partial page read)
-			// read `left hole sectors'
-			if (page_offset != 0)
-			{
-				nand_page_ptread(bank,
-						vblock,
-						page_num,
-						0,
-						page_offset,
-						WR_BUF_PTR(g_ftl_write_buf_id),
-						RETURN_ON_ISSUE);
-			}
-			// read `right hole sectors'
-			if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
-			{
-				nand_page_ptread(bank,
-						vblock,
-						page_num,
-						page_offset + num_sectors,
-						SECTORS_PER_PAGE - (page_offset + num_sectors),
-						WR_BUF_PTR(g_ftl_write_buf_id),
-						RETURN_ON_ISSUE);
-			}
-		}
-	}
-	else
-	{
-		if (page_offset != 0)
-		{
-			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id),
-					0,
-					page_offset * BYTES_PER_SECTOR);
-		}
-		// copy `right hole sectors' into SATA write buffer
-		if ((page_offset + num_sectors) < SECTORS_PER_PAGE)
-		{
-			UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
-
-			mem_copy(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base,
-					0,
-					BYTES_PER_PAGE - rhole_base);
-		}
-	}
-}
-
 UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa)	//write to delta write buffer
 {
-	UINT32 inv_delta = -1;
-	UINT32 cs;
-	UINT32 delta_page;
-
-
-	if((cs = _lzf_compress(TEMP_BUF_PTR(2), TEMP_BUF_PTR(1))) <= MAX_COMPRESS_SIZE)			//try lzf compress and compressed
-	{
-		if(is_remain_delta_buffer(bank, cs))	//is remain delta_write_buffer?
-		{
-			inv_delta = find_delta_data(TEMP_BUF_PTR(1), delta_ppa);
-			if(inv_delta != -1)
-			{
-				write_dram_32(inv_delta, -1);	//invalid prev delta
-			}
-			put_delta(bank, cs);					//put compressed delta in delta write buffer
-			return 0;
-		}
-		else								//not remain delta_write_buffer
-		{
-			delta_page = get_free_page(bank);				//get free page
-			save_delta_page(bank, delta_page);				//save delta page
-			next_delta_meta[bank] = DELTA_BUF(bank) + sizeof(UINT32);		//initialize delta and meta pointer
-			next_delta_offset[bank] = DELTA_BUF(bank) + (2 * MAX_DELTAS_PER_PAGE + 1) * sizeof(UINT32);
-			put_delta(bank, cs);					//put compressed delta in delta write buffer
-			return 0;
-		}
-	}
-	else								//not compressed
-	{
-		return -1;
-	}
+	return 0;
 }
 
 UINT32 get_free_page(UINT32 const bank)				//get free page
@@ -846,13 +782,6 @@ UINT32 get_free_page(UINT32 const bank)				//get free page
 	}
 
 	return g_next_free_page[bank];
-}
-
-void save_original_data(UINT32 const bank, UINT32 const new_ppa)			//write as original data
-{
-	UINT32 vblock = new_ppa / PAGES_PER_BLK;
-	UINT32 page_num = new_ppa % PAGES_PER_BLK;
-	nand_page_program_from_host(bank, vblock, page_num);
 }
 
 UINT32 _lzf_compress (const void *const in_data, void *out_data)
@@ -1100,27 +1029,30 @@ static void garbage_collection(UINT32 const bank)
 				{
 					//INVALID가 아니라도 쓰고 나서 또 바뀌었을 수 있으니까 첵첵!
 					//if(is_in_delta_map(lpa, victim * PAGES_PER_BLK + offset) == TRUE)
-					if(get_ppa_delta(lpa) == ppa)
+					UINT32 delta_map_offset = get_delta_offset(lpa);
+					if(delta_map_offset == INVAL)
 					{
-						//요놈이 진짜 밸리드한 델타임
 						/*
-						 * 오프셋 가져가서 압축 풀고... WriteToDelta로 넘겨버리자
-						 * -> 압축안풀고 바로 카피했다
-						 * 요부분은 너가 좀 해줘!
-						 * -> ㅇㅇ
+						 * 델타 매핑에 없음
+						 * 그냥 넘어가면 되지
 						 */
-						/*
-						 * offset 정보는 얻는데, 압축을 풀필요는 없을거같아
-						 * 압축안풀고 그 자료 그대로 옮기는게 delta_copy
-						 * ;
-						 */
-						UINT32 delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
-						wirte_to_delta(bank, lpa, delta_data_offset);
+						continue;
 					}
 					else
 					{
-						//결국 인밸리드함 ㅠㅠ
-						continue;
+						UINT32 delta_ppa = get_delta_ppa(delta_map_offset);
+						if(delta_ppa == ppa)
+						{
+							/*
+							 * 델타 매핑에 있고
+							 * 요놈이 거기 써진 ppa가 맞아!
+							 */
+							set_delta_ppa(offset, 0);
+							UINT32 delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
+							write_to_delta(bank, lpa, delta_data_offset);
+						}
+						else
+							continue;
 					}
 				}
 				else				//invalid delta
@@ -1137,82 +1069,22 @@ static void garbage_collection(UINT32 const bank)
 	ret_rsrv_pbn(bank, victim);
 }
 
-
-void delta_copy(UINT32 bank, UINT32 lpa, UINT32 offset, UINT32 inbuf, UINT32 outbuf)
-{
-	UINT16 headergc;
-	UINT16 cs;
-	UINT32 data_cnt, data_offset;
-	UINT32 i;
-	UINT32 new_ppa;
-
-	cs = read_dram_16(inbuf + offset);
-
-	if(is_remain_delta_buffer(bank, cs))
-	{
-		write_dram_32(next_delta_meta[bank], lpa);
-		write_dram_32(next_delta_meta[bank] + sizeof(UINT32), offset);
-		mem_copy(next_delta_offset[bank], inbuf + offset, cs);
-		//nand에 write시 data_cnt를 적어주는걸로 하자 -> 여긴안적음
-	}
-	else	//delta write buffer 공간부족
-	{
-		//nand에 write시 data_cnt를 적어주는걸로 하자 -> 여기 적어야됨
-		data_cnt = ((next_delta_meta[bank] - DELTA_BUF) / sizeof(UINT32) - 1 ) / 2;
-		write_dram_32(DELTA_BUF, data_cnt);
-
-		UINT32 test_ppa = g_next_free_page[bank] + 1;
-		new_ppa = get_free_page(bank);
-
-		ASSERT(test_ppa == new_ppa);
-
-		next_delta_meta[bank] = DELTA_BUF + sizeof(UINT32);
-		next_delta_offset[bank] = DELTA_BUF +
-
-	}
-	/*
-	data_cnt = read_dram_32(TEMP_BUF(1));
-	for(i = 0; i < data_cnt; i++)
-	{
-		if(lpa == read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * (i+1) * 2))
-		{
-			write_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * (i+1) * 2, INVAL);
-		}
-	}
-	data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * (data_cnt * 2 + 1));
-	cs = read_dram_16(GC_BUF_PTR(1) + data_offset);
-	if(is_remain_delta_buffer(bank, cs))
-	{
-		mem_copy(next_delta_offset[bank], GC_BUF_PTR(1) + data_offset, cs);
-		next_delta_offset[bank] = next_delta_offset[bank] + (cs + sizeof(UINT32)-1) / sizeof(UINT32) * sizeof(UINT32);
-		write_dram_16(next_delta_meta[bank], lpa);
-		write_dram_16(next_delta_meta[bank] + 16, offset);
-		next_delta_meta[bank] = next_delta_meta[bank] + 32;
-	}
-	else
-	{
-		//get new page?
-	}
-	 */
-}
-
 /*lpa를 받아서 델타 매핑을 뒤져서
- * 델타 ppa를 반환
+ * 델타 매핑의 오프셋을 반환
  * 없으면 인밸
  */
-static UINT32 get_ppa_delta(UINT32 const lpa)
+static UINT32 get_delta_map_offset(UINT32 const lpa)
 {
 	UINT32 offset = g_delta_pmt_pointer;
 	for(; offset != g_delta_pmt_pointer + 1; offset = (offset - 1) % NUM_MAX_DELTA_PAGES)
 	{
 		if(lpa == get_delta_lpa(offset))//read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * 2 * offset))
 		{
-			return get_delta_ppa(offset);//read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (2 * offset + 1));
+			return offset;
 		}
 	}
 	return INVAL;
 }
-//g_ftl_read_buf_id = (g_ftl_read_buf_id + 1) % NUM_RD_BUFFERS
 
 //ㅋ캐시를 안쓰게 되면서
 //merge하는 상황이 델타 매핑이 다 찼을때랑
