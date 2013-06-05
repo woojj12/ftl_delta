@@ -834,6 +834,29 @@ UINT32 get_free_page(UINT32 const bank)				//get free page
 
 	return g_next_free_page[bank];
 }
+/*
+* 압축하는 함수
+* compress
+* 인자 : 버퍼 두개
+* 리턴 : TRUE/FALSE
+* 성공하면 TEMP_BUF_PTR(2)에 압축한 것이 들어감
+*/
+//buf_data : 원래 nand에 있던 페이지, buf_write : write시 새로 쓰이는 페이지
+//BOOL32 compress(TEMP_BUF_PTR(0), WR_BUF_PTR(g_ftl_write_buf_id))
+BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
+{
+	BOOL32 success;
+
+	//buf_data, buf_write를 압축해서 TMP_BUF_PTR(1)로 보내준다.
+	//xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst);
+	xor_buffer(buf_data, buf_write, TEMP_BUF_PTR(1);
+
+	//TEMP_BUF_PTR(1)에서 압축하여 TEMP_BUF_PTR(2)로 보내준다.
+	//success는 _lzf_compress가 성공적으로 되었는지를 알려준다.
+	success = (_lzf_compress(TEMP_BUF_PTR(1), TEMP_BUF_PTR(2) > 0);
+
+	return success
+}
 
 UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 {
