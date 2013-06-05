@@ -51,7 +51,7 @@ void _lzf_decompress (const void *const in_data, void *out_data);		//decompress 
 //write stream function (not in read stream function)
 static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_sectors);				//write(not in write buffer)
 void load_original_data_write(UINT32 bank, UINT32 old_ppa, UINT32 page_offset, UINT32 num_sectors);		//load original data for write
-UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa);		//write to delta write buffer
+void write_to_delta(UINT32 bank, UINT32 lpa, UINT32 buf_addr);		//write to delta write buffer
 UINT32 get_free_page(UINT32 const bank);		//get free page
 void save_original_data(UINT32 bank, UINT32 new_ppa, UINT32 page_offset, UINT32 column_cnt);		//write as original data
 UINT32 _lzf_compress (const void *const in_data, void *out_data);		//compress by lzf
@@ -500,34 +500,20 @@ UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find delta dat
 	}
 }
 
-void _lzf_decompress (const void *const in_data, void *out_data)		//decompress data
+void _lzf_decompress (UINT32 const in_data, UINT32 const out_data)        //decompress data
 {
+	UINT16 cs;
+	UINT16 header1[BYTES_PER_PAGE];		//compressed buffer
+	UINT16 header2[BYTES_PER_PAGE];		//decompressed buffer
 
-	//in_data -> out_data
-	/*
-	 * 압축을 푼다
-	 *
-	 */
-	u8 *hreader;
-	u8 *p;
-	ssize_t rc3, bytes;
-	UINT32 cs, us;
+	cs = read_dram_16(in_data);			//cs = header(compressed size)
+	mem_copy(header1, in_data + sizeof(UINT16), cs);	// copy compressed data to header1(SRAM)
 
-	hreader = in_data;
-	p = hreader;
+	ASSERT (lzf_decompress (header1, cs, header2, BYTES_PER_PAGE) == BYTES_PER_PAGE);
 
-	cs = (hreader[0] << 8) | hreader[1];
-	us = (hreader[2] << 8) | hreader[3];
-
-	p = &hreader[TYPE1_HDR_SIZE];
-
-	nr_read = cs + 4;
-
-	if (lzf_decompress (p, cs, out_data, us) != us)
-	{
-		exit(1);
-	}
+	mem_copy(out_data, header2, BYTES_PER_PAGE);
 }
+
 
 //write stream function (not in read stream function)
 void ftl_write(UINT32 const lba, UINT32 const num_sectors)
@@ -762,9 +748,63 @@ GET_NEXT_DELTA_TABLE_SPACE_END:
 	return g_delta_pmt_pointer;
 }
 
-UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa)	//write to delta write buffer
+void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr)	//write to delta write buffer
 {
-	return 0;
+	UINT16 cs;
+	UINT32 i;
+	UINT32 data_cnt;
+	UINT32 lpa_out, offset_out;
+
+	//압축된 델타의 사이즈 찾음
+	cs = read_dram_16(buf_addr);		
+
+	//델타 버퍼가 압축된 델타를 넣을 수 있으면
+	if(is_remain_delta_buffer(cs))
+	{
+		//현재 쓸 lpa가 델타 버퍼에 있는 lpa와 같은 것이 있으면
+		//델타 버퍼에 있는 lpa를 INVALID 시킴.
+		data_cnt = read_dram_32(DELTA_BUF(bank));
+		for(i = 0; i < data_cnt; i++)
+		{
+			lpa_out = read_dram_32(buf_addr + (2 * i + 2) * sizeof(UINT32));
+			if(lpa_out == lpa)
+			{
+				mem_set_dram(buf_addr + (2 * i + 2) * sizeof(UINT32), INVALID, sizeof(UINT32));
+			}
+		}
+
+	}
+	else	//델타 버퍼가 압축된 델타를 못 넣음
+	{
+		//새 페이지 할당
+		delta_ppn = get_free_page();
+
+		//델타 페이지 내의 lpn에 대해 페이지 매핑 테이블의 delta_ppa들을 바꿔줌.
+		data_cnt = read_dram_32(DELTA_BUF(bank));
+		for(i = 0; i < data_cnt; i++)
+		{
+			lpa_out = read_dram_32(DELTA_BUF(bank) + (2 * i + 2) * sizeof(UINT32));
+			if(lpa_out != INVAL)
+			{
+				offset_out = get_delta_map_offset(bank, lpa);
+				set_delta_ppa(offset_out, delta_ppn);
+			}
+		}
+
+
+		//델타 메타, offset 초기화
+		next_delta_meta[bank] = DELTA_BUF(bank) + sizeof(UINT32);
+		next_delta_offset[bank] = DELTA_BUF(bank) + (1 + 2 * MAX_DELTAS_PER_PAGE) * sizeof(UINT32);
+
+	}
+
+	//delta내에 delta써주고, lpn 도 써주고, offset도 써주고
+	//위에서 공통되는 부분이라 뺌
+
+	mem_copy(next_delta_offset[bank], buf_addr, cs);
+	next_delta_meta[bank] = next_delta_meta[bank] + 2 * sizeof(UINT32);
+	next_delta_offset[bank] = next_delta_offset[bank] + (cs + sizeof(UINT32) - 1)/ sizeof(UINT32) * sizeof(UINT32);
+	
 }
 
 UINT32 get_free_page(UINT32 const bank)				//get free page
@@ -795,30 +835,30 @@ UINT32 get_free_page(UINT32 const bank)				//get free page
 	return g_next_free_page[bank];
 }
 
-UINT32 _lzf_compress (const void *const in_data, void *out_data)
+UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 {
-	UINT32 i;
-	UINT32 cs;
-	UINT32 len;
-	u8* header;
+	UINT16 cs;
+	UINT16 header1[BYTES_PER_PAGE];        //decompressed buffer
+	UINT16 header2[BYTES_PER_PAGE + 1];    //compressed buffer
 
-	cs = lzf_compress (in_data + MAX_HDR_SIZE, PAGE_SIZE, out_data + MAX_HDR_SIZE, PAGE_SIZE - 4);
-	if (cs < CS_SIZE && cs > 0)
+	mem_copy(header1, in_data, BYTES_PER_PAGE);
+
+	cs = lzf_compress (header1, BYTES_PER_PAGE, &header2[1], BYTES_PER_PAGE - 4);
+	if ((cs < CS_SIZE - sizeof(UINT16)) && cs > 0)
 	{
-		header = &out_data[MAX_HDR_SIZE - TYPE1_HDR_SIZE];
-		header[0] = cs >> 8;
-		header[1] = cs & 0xff;
-		header[2] = in_len >> 8;
-		header[3] = in_len & 0xff;
-		len = cs + TYPE1_HDR_SIZE;
+		header = out_data;
+		header[0] = cs;
+		cs = cs + sizeof(UINT16);
 	}
 	else
 	{                       // write uncompressed
 		return 0;
 	}
+	mem_copy(out_data, header2, cs);
 
 	return cs;
 }
+
 
 UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs)	//is remain in delta_buffer?
 {
