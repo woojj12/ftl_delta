@@ -1,7 +1,7 @@
 //사용법
 //함수명 리스트를 적고, 그 다음 똑같은 순서로 함수명을 다시 적은뒤 그 함수들을 코딩하자
 //
-//함수 작성 완료되면 함수 정의부분의 주석에 "complete" 추가하자
+//함수 작성 완료되면 함수 정의부분의 주석에 "complte" 추가하자
 
 
 #include "jasmine.h"
@@ -596,12 +596,12 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		 * 압축하는 함수
 		 * compress
 		 * 인자 : 버퍼 두개
-		 * 리턴 : 압축된 크기
+		 * 리턴 : TRUE/FALSE
 		 * 성공하면 TEMP_BUF_PTR(2)에 압축한 것이 들어감
 		 */
-		UINT32 compressed_size = compress(TEMP_BUF_PTR(0), WD_BUF_PTR(g_ftl_write_buf_id));
+		BOOL32 comp_success = compress(TEMP_BUF_PTR(0), WD_BUF_PTR(g_ftl_write_buf_id));
 
-		if(compressed_size < BYTES_PER_PAGE/2)
+		if(comp_success == TRUE)
 		{
 			//압축 성공
 			//데이터매핑테이블 업데이트
@@ -620,7 +620,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 			set_delta_lpa(delta_page_map_offset, lpa);
 			set_delta_ppa(delta_page_map_offset, 0);
 			/*
-			 * 델타에 쓰는 함
+			 * 델타에 쓰는 함수
 			 * write_to_delta
 			 * 인자 : bank, lpa, buf_ptr
 			 * buf_ptr은 압축한 놈이 저장된 버퍼
@@ -1114,7 +1114,6 @@ static void garbage_collection(UINT32 const bank)
 						 * 압축안풀고 그 자료 그대로 옮기는게 delta_copy
 						 * ;
 						 */
-
 						UINT32 delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
 						wirte_to_delta(bank, lpa, delta_data_offset);
 					}
