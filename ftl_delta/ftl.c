@@ -98,6 +98,8 @@ UINT32 g_delta_pmt_pointer;
 static UINT32 get_delta_map_offset(UINT32 const lpa);
 //static UINT32 get_ppa_delta(UINT32 const lpa);
 
+static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa);
+
 static void sanity_check(void)
 {
 	UINT32 dram_requirement = RD_BUF_BYTES + WR_BUF_BYTES + DRAM_BYTES_OTHER;
@@ -601,16 +603,16 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		 * 리턴 : TRUE/FALSE
 		 * 성공하면 TEMP_BUF_PTR(2)에 압축한 것이 들어감
 		 */
-		BOOL32 comp_success = compress(TEMP_BUF_PTR(0), WD_BUF_PTR(g_ftl_write_buf_id));
+		BOOL32 comp_success = compress(TEMP_BUF_PTR(0), WR_BUF_PTR(g_ftl_write_buf_id));
 
 		if(comp_success == TRUE)
 		{
 			//압축 성공
 			//데이터매핑테이블 업데이트
-			old_ppa = set_invalid(old_ppa);
+			old_ppa = set_invalid_ppa(old_ppa);
 			set_data_ppa(bank, lpa, old_ppa);
 			//델타매핑 쓸 위치선정
-			UINT32 delta_page_map_offset = get_next_delta_table_space(bank, lpa, 0);
+			UINT32 delta_page_map_offset = get_next_delta_table_space(bank, lpa);
 
 			/*
 			 * 델타 매핑 테이블에다가 엔트리 업데이트
@@ -661,94 +663,103 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		WRITE_ORIGINAL:
 		new_ppa = get_free_page(bank);
 		set_data_ppa(bank, lpa, new_ppa);
-		nand_page_program(bank, get_pbn(new_ppa), get_offset(new_ppa), WD_BUF_PTR(g_ftl_write_buf_id));
+		nand_page_program(bank, get_pbn(new_ppa), get_offset(new_ppa), WR_BUF_PTR(g_ftl_write_buf_id));
 		write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(g_next_free_page[bank]), lpa);
 	}
 }
 
-static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa, UINT32 new_ppa)
+static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa)
 {
 	UINT32 offset;
 	UINT32 new_ppa = 0;
-	GET_NEXT_DELTA_TABLE_SPACE_START:
+GET_NEXT_DELTA_TABLE_SPACE_START:
 
 	offset = (g_delta_pmt_pointer + 1) % NUM_MAX_DELTA_PAGES;
 	//g_delta_pmt_pointer = (g_delta_pmt_pointer + 1) % NUM_MAX_DELTA_PAGES;
-	UINT32 old_delta_ppa = get_delta_ppa(g_delta_pmt_pointer);
-	UINT32 old_delta_lpa = get_delta_lpa(g_delta_pmt_pointer);
-	if(old_delta_ppa == 0)
+	UINT32 old_delta_ppa = get_delta_ppa(offset);
+	UINT32 old_delta_lpa = get_delta_lpa(offset);
+
+	if(old_delta_lpa == lpa)
 	{
 		/*
-		 * 지금 가리킨 놈이 하필 버퍼에 있는놈임
-		 * 얘를 빼고 어쩌고 하면 복잡해 지니까
-		 * 그냥 다음에서 찾도록 하자
+		 * 지금 가리킨 놈이 자기 자신이 들어있는 엔트리
+		 * 그냥 덮어 씀
 		 */
-		g_delta_pmt_pointer = offset;
-		goto GET_NEXT_DELTA_TABLE_SPACE_START;
-
+		goto GET_NEXT_DELTA_TABLE_SPACE_END;
 	}
-
-	if((is_valid_ppa(old_delta_ppa) == FALSE)\
-			|| (old_delta_lpa == lpa))
+	else
 	{
 		/*
-		 * 지금 포인터가 가리키는 엔트리가 인밸리드한 놈이면
-		 * 아니면 지금 포인터가 가리키는 엔트리가 지금 쓰려고 하는놈이랑 같은 lpa이면
-		 * 그 위치에다 그냥 덮어 쓰면 됨
+		 * 자기 엔트리가 아님
 		 */
-		/*
-		 * 인밸리드 한 놈이라는건
-		 * 그 델타 매핑 테이블 칸에 처음 쓰는거란 의미!
-		 */
-		g_delta_pmt_pointer = offset;
-		return g_delta_pmt_pointer;
-	}
-	else// if(get_delta_lpa(offset) != lpa)
-	{
-		/*
-		 * 지금 포인터가 가리키는 엔트리가 밸리드하면
-		 * 그놈을 쫓아보내야함
-		 * merge해서
-		 * 다시 씀
-		 */
-		//쫓겨나는놈 써야함
-		if(new_ppa == 0)
-		{
-			//정상적인 경로
-			new_ppa = get_free_page(bank);
-		}
-		else
-		{
-			//재귀적으로 호출된 경우
-			;
-		}
-
-		if(offset != (g_delta_pmt_pointer + 1) % NUM_MAX_DELTA_PAGES)
+		if(old_delta_ppa == 0)
 		{
 			/*
-			 * 뭔가 뭔가에 의해서 겟 프리피피에이를 갔다 왔더니
-			 * delta 매핑의 포인터가 바뀌어 있음
-			 * 아마도 gc하면서 델타가 쫓겨날 때
-			 * 델타 매핑을 바꾼 경우임
-			 * 지금껏 하던거 그냥 똥되고
-			 * 그냥 이 함수 재귀적으로 콜!
+			 * 지금 가리킨 놈이 하필 버퍼에 있는놈임
+			 * 얘를 빼고 어쩌고 하면 복잡해 지니까
+			 * 그냥 다음에서 찾도록 하자
 			 */
-			return get_next_delta_table_space(bank, lpa, new_ppa);
-		}
-		else
-		{
-			/*
-			 * 기존에 있던놈 머지해서 쫓아내자~
-			 */
-			set_data_ppa(bank, old_delta_lpa, new_ppa);
-			merge(bank, old_delta_lpa, old_delta_ppa, TEMP_BUF_PTR(0));
-			nand_page_program(bank, get_pbn(new_ppa), get_offset(new_ppa), TEMP_BUF_PTR(0));
-			write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(new_ppa), old_delta_lpa);
-
 			g_delta_pmt_pointer = offset;
-			return g_delta_pmt_pointer;
+			goto GET_NEXT_DELTA_TABLE_SPACE_START;
+		}
+		else if(is_valid_ppa(old_delta_ppa) == FALSE)
+		{
+			/*
+			 * 지금 포인터가 가리키는 엔트리가 인밸리드한 놈이면
+			 * 그 위치에다 그냥 덮어 쓰면 됨
+			 */
+			/*
+			 * 인밸리드 한 놈이라는건
+			 * 그 델타 매핑 테이블 칸에 처음 쓰는거란 의미!
+			 */
+			goto GET_NEXT_DELTA_TABLE_SPACE_END;
+		}
+
+		else
+		{
+			/*
+			 * 지금 포인터가 가리키는 엔트리가 밸리드하면
+			 * 그놈을 쫓아보내야함
+			 * merge해서
+			 * 다시 씀
+			 */
+			//쫓겨나는놈 써야함
+			if(new_ppa == 0)
+			{
+				//정상적인 경로
+				new_ppa = get_free_page(bank);
+			}
+
+			if(offset != (g_delta_pmt_pointer + 1) % NUM_MAX_DELTA_PAGES)
+			{
+				/*
+				 * 뭔가 뭔가에 의해서 겟 프리피피에이를 갔다 왔더니
+				 * delta 매핑의 포인터가 바뀌어 있음
+				 * 아마도 gc하면서 델타가 쫓겨날 때
+				 * 델타 매핑을 바꾼 경우임
+				 * 지금껏 하던거 그냥 똥되고
+				 * 처음부터 다시 시작!
+				 */
+				goto GET_NEXT_DELTA_TABLE_SPACE_START;
+			}
+			else
+			{
+				/*
+				 * 기존에 있던놈 머지해서 쫓아내자~
+				 */
+				set_data_ppa(bank, old_delta_lpa, new_ppa);
+				merge(bank, old_delta_lpa, old_delta_ppa, TEMP_BUF_PTR(0));
+				nand_page_program(bank, get_pbn(new_ppa), get_offset(new_ppa), TEMP_BUF_PTR(0));
+				write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(new_ppa), old_delta_lpa);
+
+				//goto GET_NEXT_DELTA_TABLE_SPACE_END;
+			}
 		}
 	}
+
+GET_NEXT_DELTA_TABLE_SPACE_END:
+	g_delta_pmt_pointer = offset;
+	return g_delta_pmt_pointer;
 }
 
 UINT32 write_to_delta(UINT32 bank, UINT32 delta_ppa)	//write to delta write buffer
@@ -1029,7 +1040,7 @@ static void garbage_collection(UINT32 const bank)
 				{
 					//INVALID가 아니라도 쓰고 나서 또 바뀌었을 수 있으니까 첵첵!
 					//if(is_in_delta_map(lpa, victim * PAGES_PER_BLK + offset) == TRUE)
-					UINT32 delta_map_offset = get_delta_offset(lpa);
+					UINT32 delta_map_offset = get_delta_map_offset(lpa);
 					if(delta_map_offset == INVAL)
 					{
 						/*
