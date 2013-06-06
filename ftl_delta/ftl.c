@@ -7,7 +7,10 @@
 #include "jasmine.h"
 #include "lzf.h"
 
-#define MAX_COMPRESS_SIZE	(BYTES_PER_PAGE / NUM_BANKS / 2)//2048				//MAX COMPRESS SIZE : 2K(50%)
+#define NUM_COMP_CLUSTER		16
+#define MAX_CLUSTER_SIZE		(BYTES_PER_PAGE / NUM_COMP_CLUSTER)
+
+#define MAX_COMPRESS_SIZE		(MAX_COMPRESS_SIZE / 2)				//2048		//MAX COMPRESS SIZE : 2K(50%)
 #define MAX_DELTAS_PER_PAGE			10
 #define MIN_RSRV_BLK		5
 
@@ -55,13 +58,13 @@ static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 c
 //void read_from_delta(UINT32 const bank, UINT32 delta_ppa);		//read delta
 static void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const buf_addr);		//read delta to buf_addr
 static UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const delta_ppa);		//find delta data in temp_buffer;
-static void _lzf_decompress (UINT32 const in_data, UINT32 const out_data);		//decompress data
+static void _lzf_decompress (UINT32 in_data, UINT32 out_data);		//decompress data
 
 //write stream function (not in read stream function)
 static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_sectors);				//write(not in write buffer)
 static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr);		//write to delta write buffer
 static UINT32 get_free_page(UINT32 const bank);		//get free page
-static UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data);		//compress by lzf
+static UINT32 _lzf_compress (UINT32 in_data, UINT32 out_data);		//compress by lzf
 static UINT32 is_remain_delta_buffer(UINT32 const bank, UINT32 const cs);	//is remain in delta_write_buffer?
 
 //address related function
@@ -492,18 +495,25 @@ static UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find de
 	}
 }
 
-static void _lzf_decompress (UINT32 const in_data, UINT32 const out_data)        //decompress data
+static void _lzf_decompress (UINT32 in_data, UINT32 out_data)        //decompress data
 {
 	UINT16 cs;
-	UINT16 header1[BYTES_PER_PAGE / NUM_BANKS];		//compressed buffer
-	UINT16 header2[BYTES_PER_PAGE / NUM_BANKS];		//decompressed buffer
+	volatile UINT16 header1[CLUSTER_SIZE];		//compressed buffer
+	volatile UINT16 header2[CLUSTER_SIZE];		//decompressed buffer
+	UINT32 i;
 
-	cs = read_dram_16(in_data);			//cs = header(compressed size)
-	mem_copy(header1, in_data + sizeof(UINT16), cs);	// copy compressed data to header1(SRAM)
+	for(i = 0; i < NUM_COMP_CLUSTER; i++)
+	{
+		cs = read_dram_16(in_data);			//cs = header(compressed size)
+		mem_copy(header1, in_data + sizeof(UINT16), cs);	// copy compressed data to header1(SRAM)
 
-	ASSERT (lzf_decompress (header1, cs, header2, BYTES_PER_PAGE / NUM_BANKS) == BYTES_PER_PAGE / NUM_BANKS);
+		ASSERT (lzf_decompress (header1, cs, header2, CLUSTER_SIZE) == CLUSTER_SIZE);
 
-	mem_copy(out_data, header2, BYTES_PER_PAGE / NUM_BANKS);
+		mem_copy(out_data, header2, CLUSTER_SIZE);
+
+		in_data = in_data + cs;
+		out_data = out_data + CLUSTER_SIZE;
+	}
 }
 
 
@@ -868,22 +878,31 @@ static BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 	return success;
 }
 
-static UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
+static UINT32 _lzf_compress (UINT32 in_data, UINT32 out_data)
 {
-	UINT16 cs;
-	volatile UINT16 header1[BYTES_PER_PAGE / NUM_BANKS];        //decompressed buffer
-	volatile UINT16 header2[BYTES_PER_PAGE / NUM_BANKS + 1];    //compressed buffer
-	
-	uart_printf("BPP : %ld", BYTES_PER_PAGE / NUM_BANKS);
-	uart_printf("header1 : %d in_data %x h1 + BPP : %d\n", header1, in_data, header1 + BYTES_PER_PAGE / NUM_BANKS);
+	UINT16 cs = 0;
+	UINT16 cs_cluster;
+	volatile UINT16 header1[CLUSTER_SIZE];        //decompressed buffer
+	volatile UINT16 header2[CLUSTER_SIZE + 1];    //compressed buffer
+	UINT32 i;
+
+	uart_printf("BPP : %ld", CLUSTER_SIZE);
+	uart_printf("header1 : %d in_data %x h1 + BPP : %d\n", header1, in_data, header1 + CLUSTER_SIZE);
 	uart_printf("header2 : %d", header2);
 
-	mem_copy(header1, in_data, BYTES_PER_PAGE / NUM_BANKS);
-uart_printf("lzf_in2");
+	for(i = 0; i < NUM_COMP_CLUSTER; i++)
+	{
+		mem_copy(header1, in_data, CLUSTER_SIZE);
 
+		cs_cluster = lzf_compress (header1, CLUSTER_SIZE, &header2[1], CLUSTER_SIZE - 4);	//compressed size of one cluster
 
-	cs = lzf_compress (header1, BYTES_PER_PAGE / NUM_BANKS, &header2[1], BYTES_PER_PAGE / NUM_BANKS - 4);
-uart_printf("lzf_out");
+		mem_copy(out_data + sizeof(UINT16), header2, cs_cluster);
+
+		cs = cs + cs_cluster + sizeof(UINT16);			//cs = cs + compressed data length + header
+		
+		in_data = in_data + CLUSTER_SIZE;
+		out_data = out_data + cs_cluster + sizeof(UINT16);
+	}
 
 	if ((cs < MAX_COMPRESS_SIZE - sizeof(UINT16)) && cs > 0)
 	{
@@ -894,7 +913,8 @@ uart_printf("lzf_out");
 	{                       // write uncompressed
 		return 0;
 	}
-	mem_copy(out_data + sizeof(UINT16), header2, cs);
+
+	uart_printf("lzf_out");
 
 	return cs;
 }
@@ -902,7 +922,7 @@ uart_printf("lzf_out");
 
 static UINT32 is_remain_delta_buffer(UINT32 const bank, UINT32 const cs)	//is remain in delta_buffer?
 {
-	if((next_delta_offset[bank] - DELTA_BUF(bank) + cs) > BYTES_PER_PAGE / NUM_BANKS)
+	if((next_delta_offset[bank] - DELTA_BUF(bank) + cs) > BYTES_PER_PAGE)
 	{
 		return 0;
 	}
@@ -1189,7 +1209,7 @@ static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst)
 	UINT32 i;
 	UINT32 temp0, temp1;
 
-	for(i = 0; i < BYTES_PER_PAGE / NUM_BANKS; i = i + sizeof(UINT32))
+	for(i = 0; i < BYTES_PER_PAGE; i = i + sizeof(UINT32))
 	{
 		temp0 = read_dram_32(src0 + i);
 		temp1 = read_dram_32(src1 + i);
