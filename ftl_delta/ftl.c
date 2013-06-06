@@ -54,10 +54,10 @@ void load_original_data_write(UINT32 bank, UINT32 old_ppa, UINT32 page_offset, U
 void write_to_delta(UINT32 bank, UINT32 lpa, UINT32 buf_addr);		//write to delta write buffer
 UINT32 get_free_page(UINT32 const bank);		//get free page
 void save_original_data(UINT32 bank, UINT32 new_ppa, UINT32 page_offset, UINT32 column_cnt);		//write as original data
-UINT32 _lzf_compress (const void *const in_data, void *out_data);		//compress by lzf
+UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data);		//compress by lzf
 UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs);	//is remain in delta_write_buffer?
 void save_delta_page(UINT32 bank, UINT32 delta_ppa);		//save delta page in flash
-void put_delta(UINT32 bank, UINT32 cs);			//put delta data in delta_write_buffer
+//void put_delta(UINT32 bank, UINT32 const lpa, UINT32 const offset, UINT32 cs);			//put delta data in delta_write_buffer
 
 //address related function
 UINT32 set_valid_ppa(UINT32 ppa);		//set valid ppa
@@ -753,12 +753,13 @@ void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr)	
 	UINT32 i;
 	UINT32 data_cnt;
 	UINT32 lpa_out, offset_out;
+	UINT32 delta_ppn;
 
 	//압축된 델타의 사이즈 찾음
 	cs = read_dram_16(buf_addr);		
 
 	//델타 버퍼가 압축된 델타를 넣을 수 있으면
-	if(is_remain_delta_buffer(cs))
+	if(is_remain_delta_buffer(bank, cs))
 	{
 		//현재 쓸 lpa가 델타 버퍼에 있는 lpa와 같은 것이 있으면
 		//델타 버퍼에 있는 lpa를 INVALID 시킴.
@@ -776,7 +777,7 @@ void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr)	
 	else	//델타 버퍼가 압축된 델타를 못 넣음
 	{
 		//새 페이지 할당
-		delta_ppn = get_free_page();
+		delta_ppn = get_free_page(bank);
 
 		//델타 페이지 내의 lpn에 대해 페이지 매핑 테이블의 delta_ppa들을 바꿔줌.
 		data_cnt = read_dram_32(DELTA_BUF(bank));
@@ -785,7 +786,7 @@ void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr)	
 			lpa_out = read_dram_32(DELTA_BUF(bank) + (2 * i + 2) * sizeof(UINT32));
 			if(lpa_out != INVAL)
 			{
-				offset_out = get_delta_map_offset(bank, lpa);
+				offset_out = get_delta_map_offset(lpa);
 				set_delta_ppa(offset_out, delta_ppn);
 			}
 		}
@@ -852,9 +853,9 @@ BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 
 	//TEMP_BUF_PTR(1)에서 압축하여 TEMP_BUF_PTR(2)로 보내준다.
 	//success는 _lzf_compress가 성공적으로 되었는지를 알려준다.
-	success = (_lzf_compress(TEMP_BUF_PTR(1), TEMP_BUF_PTR(2) > 0);
+	success = (_lzf_compress(TEMP_BUF_PTR(1), TEMP_BUF_PTR(2)) > 0);
 
-	return success
+	return success;
 }
 
 UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
@@ -866,17 +867,16 @@ UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 	mem_copy(header1, in_data, BYTES_PER_PAGE);
 
 	cs = lzf_compress (header1, BYTES_PER_PAGE, &header2[1], BYTES_PER_PAGE - 4);
-	if ((cs < CS_SIZE - sizeof(UINT16)) && cs > 0)
+	if ((cs < MAX_COMPRESS_SIZE - sizeof(UINT16)) && cs > 0)
 	{
-		header = out_data;
-		header[0] = cs;
+		mem_set_dram(out_data, cs, sizeof(UINT16));
 		cs = cs + sizeof(UINT16);
 	}
 	else
 	{                       // write uncompressed
 		return 0;
 	}
-	mem_copy(out_data, header2, cs);
+	mem_copy(out_data + sizeof(UINT16), header2, cs);
 
 	return cs;
 }
@@ -884,7 +884,7 @@ UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 
 UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs)	//is remain in delta_buffer?
 {
-	if((next_delta_offset[bank] + cs) > PAGE_SIZE)
+	if((next_delta_offset[bank] + cs) > BYTES_PER_PAGE)
 	{
 		return 0;
 	}
@@ -913,7 +913,7 @@ void save_delta_page(UINT32 const bank, UINT32 const delta_ppa)		//save delta pa
 	offset = get_offset(delta_ppa);
 	nand_page_program(bank, pbn, offset, DELTA_BUF(bank));
 }
-
+/*
 void put_delta(UINT32 bank, UINT32 const lpa, UINT32 const offset, UINT32 cs)			//put delta data in delta_buffer
 {
 	UINT16 header;
@@ -925,7 +925,7 @@ void put_delta(UINT32 bank, UINT32 const lpa, UINT32 const offset, UINT32 cs)			
 	mem_copy(next_delta_offset[bank], TEMP_BUF(1), cs);
 	next_delta_offset[bank] = next_delta_offset[bank] + (cs + sizeof(UINT32)-1) / sizeof(UINT32) * sizeof(UINT32);
 }
-
+*/
 UINT32 set_valid_ppa(UINT32 const ppa)
 {
 	return VAL & ppa;
@@ -1205,4 +1205,13 @@ static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst)
 		temp0 = temp0 ^ temp1;
 		write_dram_32(dst + i, temp0);
 	}
+}
+
+
+void ftl_flush(void)
+{
+}
+
+void ftl_isr(void)
+{
 }
