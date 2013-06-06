@@ -7,7 +7,7 @@
 #include "jasmine.h"
 #include "lzf.h"
 
-#define MAX_COMPRESS_SIZE	(BYTES_PER_PAGE / 2)//2048				//MAX COMPRESS SIZE : 2K(50%)
+#define MAX_COMPRESS_SIZE	(BYTES_PER_PAGE / NUM_BANKS / 2)//2048				//MAX COMPRESS SIZE : 2K(50%)
 #define MAX_DELTAS_PER_PAGE			10
 #define MIN_RSRV_BLK		5
 
@@ -495,15 +495,15 @@ static UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find de
 static void _lzf_decompress (UINT32 const in_data, UINT32 const out_data)        //decompress data
 {
 	UINT16 cs;
-	UINT16 header1[BYTES_PER_PAGE];		//compressed buffer
-	UINT16 header2[BYTES_PER_PAGE];		//decompressed buffer
+	UINT16 header1[BYTES_PER_PAGE / NUM_BANKS];		//compressed buffer
+	UINT16 header2[BYTES_PER_PAGE / NUM_BANKS];		//decompressed buffer
 
 	cs = read_dram_16(in_data);			//cs = header(compressed size)
 	mem_copy(header1, in_data + sizeof(UINT16), cs);	// copy compressed data to header1(SRAM)
 
-	ASSERT (lzf_decompress (header1, cs, header2, BYTES_PER_PAGE) == BYTES_PER_PAGE);
+	ASSERT (lzf_decompress (header1, cs, header2, BYTES_PER_PAGE / NUM_BANKS) == BYTES_PER_PAGE / NUM_BANKS);
 
-	mem_copy(out_data, header2, BYTES_PER_PAGE);
+	mem_copy(out_data, header2, BYTES_PER_PAGE / NUM_BANKS);
 }
 
 
@@ -582,6 +582,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		 * 리턴 : TRUE/FALSE
 		 * 성공하면 TEMP_BUF_PTR(2)에 압축한 것이 들어감
 		 */
+
 		BOOL32 comp_success = compress(TEMP_BUF_PTR(0), WR_BUF_PTR(g_ftl_write_buf_id));
 
 		if(comp_success == TRUE)
@@ -792,7 +793,6 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 				set_delta_ppa(offset_out, delta_ppn);
 			}
 		}
-
 		//nand page에 씀!!
 		vblock = get_pbn(delta_ppn);
 		voffset = get_offset(delta_ppn);
@@ -807,7 +807,7 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 	//delta내에 delta써주고, lpn 도 써주고, offset도 써주고
 	//위에서 공통되는 부분이라 뺌
 	write_dram_32(next_delta_meta[bank], next_delta_offset[bank]);
-	write_dram_32(next_delta_meta[bank], lpa);
+	write_dram_32(next_delta_meta[bank] + sizeof(UINT32), lpa);
 	mem_copy(next_delta_offset[bank], buf_addr, cs);
 	next_delta_meta[bank] = next_delta_meta[bank] + 2 * sizeof(UINT32);
 	next_delta_offset[bank] = next_delta_offset[bank] + (cs + sizeof(UINT32) - 1)/ sizeof(UINT32) * sizeof(UINT32);
@@ -857,10 +857,13 @@ static BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 	//buf_data, buf_write를 압축해서 TMP_BUF_PTR(1)로 보내준다.
 	//xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst);
 	xor_buffer(buf_data, buf_write, TEMP_BUF_PTR(1));
+	uart_printf("xor_buffer");
 
 	//TEMP_BUF_PTR(1)에서 압축하여 TEMP_BUF_PTR(2)로 보내준다.
 	//success는 _lzf_compress가 성공적으로 되었는지를 알려준다.
 	success = (_lzf_compress(TEMP_BUF_PTR(1), TEMP_BUF_PTR(2)) > 0);
+
+	uart_printf("lzf_compress : %d", success);
 
 	return success;
 }
@@ -868,12 +871,20 @@ static BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 static UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 {
 	UINT16 cs;
-	UINT16 header1[BYTES_PER_PAGE];        //decompressed buffer
-	UINT16 header2[BYTES_PER_PAGE + 1];    //compressed buffer
+	volatile UINT16 header1[BYTES_PER_PAGE / NUM_BANKS];        //decompressed buffer
+	volatile UINT16 header2[BYTES_PER_PAGE / NUM_BANKS + 1];    //compressed buffer
+	
+	uart_printf("BPP : %ld", BYTES_PER_PAGE / NUM_BANKS);
+	uart_printf("header1 : %d in_data %x h1 + BPP : %d\n", header1, in_data, header1 + BYTES_PER_PAGE / NUM_BANKS);
+	uart_printf("header2 : %d", header2);
 
-	mem_copy(header1, in_data, BYTES_PER_PAGE);
+	mem_copy(header1, in_data, BYTES_PER_PAGE / NUM_BANKS);
+uart_printf("lzf_in2");
 
-	cs = lzf_compress (header1, BYTES_PER_PAGE, &header2[1], BYTES_PER_PAGE - 4);
+
+	cs = lzf_compress (header1, BYTES_PER_PAGE / NUM_BANKS, &header2[1], BYTES_PER_PAGE / NUM_BANKS - 4);
+uart_printf("lzf_out");
+
 	if ((cs < MAX_COMPRESS_SIZE - sizeof(UINT16)) && cs > 0)
 	{
 		mem_set_dram(out_data, cs, sizeof(UINT16));
@@ -891,7 +902,7 @@ static UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 
 static UINT32 is_remain_delta_buffer(UINT32 const bank, UINT32 const cs)	//is remain in delta_buffer?
 {
-	if((next_delta_offset[bank] - DELTA_BUF(bank) + cs) > BYTES_PER_PAGE)
+	if((next_delta_offset[bank] - DELTA_BUF(bank) + cs) > BYTES_PER_PAGE / NUM_BANKS)
 	{
 		return 0;
 	}
@@ -1178,7 +1189,7 @@ static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst)
 	UINT32 i;
 	UINT32 temp0, temp1;
 
-	for(i = 0; i < BYTES_PER_PAGE; i = i + sizeof(UINT32))
+	for(i = 0; i < BYTES_PER_PAGE / NUM_BANKS; i = i + sizeof(UINT32))
 	{
 		temp0 = read_dram_32(src0 + i);
 		temp1 = read_dram_32(src1 + i);
