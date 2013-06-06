@@ -755,6 +755,7 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 	UINT32 data_cnt;
 	UINT32 lpa_out, offset_out;
 	UINT32 delta_ppn;
+	UINT32 vblock, voffset;
 
 	//압축된 델타의 사이즈 찾음
 	cs = read_dram_16(buf_addr);		
@@ -792,8 +793,12 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 			}
 		}
 
+		//nand page에 씀!!
+		vblock = get_pbn(delta_ppn);
+		voffset = get_offset(delta_ppn);
+		nand_page_program(bank, vblock, voffset, DELTA_BUF(bank));
 
-		//델타 메타, offset 초기화
+		//델타 메타, offset 초기화 해주기
 		next_delta_meta[bank] = DELTA_BUF(bank) + sizeof(UINT32);
 		next_delta_offset[bank] = DELTA_BUF(bank) + (1 + 2 * MAX_DELTAS_PER_PAGE) * sizeof(UINT32);
 
@@ -801,7 +806,8 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 
 	//delta내에 delta써주고, lpn 도 써주고, offset도 써주고
 	//위에서 공통되는 부분이라 뺌
-
+	write_dram_32(next_delta_meta[bank], next_delta_offset[bank]);
+	write_dram_32(next_delta_meta[bank], lpa);
 	mem_copy(next_delta_offset[bank], buf_addr, cs);
 	next_delta_meta[bank] = next_delta_meta[bank] + 2 * sizeof(UINT32);
 	next_delta_offset[bank] = next_delta_offset[bank] + (cs + sizeof(UINT32) - 1)/ sizeof(UINT32) * sizeof(UINT32);
@@ -885,7 +891,7 @@ static UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 
 static UINT32 is_remain_delta_buffer(UINT32 const bank, UINT32 const cs)	//is remain in delta_buffer?
 {
-	if((next_delta_offset[bank] + cs) > BYTES_PER_PAGE)
+	if((next_delta_offset[bank] - DELTA_BUF(bank) + cs) > BYTES_PER_PAGE)
 	{
 		return 0;
 	}
