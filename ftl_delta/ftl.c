@@ -1198,4 +1198,39 @@ void ftl_flush(void)
 
 void ftl_isr(void)
 {
+    UINT32 bank;
+    UINT32 bsp_intr_flag;
+
+    uart_print("BSP interrupt occured...");
+    // interrupt pending clear (ICU)
+    SETREG(APB_INT_STS, INTR_FLASH);
+
+    for (bank = 0; bank < NUM_BANKS; bank++) {
+        while (BSP_FSM(bank) != BANK_IDLE);
+        // get interrupt flag from BSP
+        bsp_intr_flag = BSP_INTR(bank);
+
+        if (bsp_intr_flag == 0) {
+            continue;
+        }
+        UINT32 fc = GETREG(BSP_CMD(bank));
+        // BSP clear
+        CLR_BSP_INTR(bank, bsp_intr_flag);
+
+        // interrupt handling
+		if (bsp_intr_flag & FIRQ_DATA_CORRUPT) {
+            uart_printf("BSP interrupt at bank: 0x%x", bank);
+            uart_print("FIRQ_DATA_CORRUPT occured...");
+		}
+		if (bsp_intr_flag & (FIRQ_BADBLK_H | FIRQ_BADBLK_L)) {
+            uart_printf("BSP interrupt at bank: 0x%x", bank);
+			if (fc == FC_COL_ROW_IN_PROG || fc == FC_IN_PROG || fc == FC_PROG) {
+                uart_print("find runtime bad block when block program...");
+			}
+			else {
+                uart_printf("find runtime bad block when block erase...vblock #: %d", GETREG(BSP_ROW_H(bank)) / PAGES_PER_BLK);
+				ASSERT(fc == FC_ERASE);
+			}
+		}
+    }
 }
