@@ -398,7 +398,6 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 			{
 				uart_printf("ftl_read 1\n");
 				//no delta
-				//load_original_data(bank, ppa,);	//load original data -> 델타없는거니 nand read만하면될듯
 				nand_page_read(bank, get_pbn(ppa), get_offset(ppa), RD_BUF_PTR(g_ftl_read_buf_id));
 			}
 			else
@@ -441,15 +440,6 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 	}
 
 	return;
-}
-
-static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 const buf_addr)		//load original data
-{
-	//꼭 partial page로 읽어야할 이유가 있음???
-	//nand_page_ptread_to_host(bank, ori_ppa / PAGES_PER_BLK, ori_ppa % PAGES_PER_BLK, sect_offset, num_sectors_to_read);
-	uart_printf("load_original in\n");
-	nand_page_read(bank, get_pbn(ori_ppa), get_offset(ori_ppa), buf_addr);
-	uart_printf("load_original in\n");
 }
 
 static void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const dst_buf)		//read delta to buf_addr
@@ -649,7 +639,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		if((page_offset + num_sectors) < SECTORS_PER_PAGE)
 		{
 			UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
-			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id), 0, BYTES_PER_PAGE - rhole_base);
+			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base, 0, BYTES_PER_PAGE - rhole_base);
 		}
 
 		WRITE_ORIGINAL:
