@@ -230,6 +230,7 @@ static void format(void)
 			ret_rsrv_pbn(bank, vblock);
 			lbn++;
 		}
+		uart_printf("bank %d rsrv cnt %d\n",bank,  g_misc_meta[bank].rsrv_blk_cnt);
 		// set remained rsrv blocks as `invalid'
 		/*
         while (lbn < LOG_BLK_PER_BANK) {
@@ -258,7 +259,8 @@ static void init_metadata_sram(void)
 		set_miscblk_vpn(bank, (MISCBLK_VBN * PAGES_PER_BLK) - 1);
 
 		UINT32 pbn = get_rsrv_pbn(bank, FALSE);
-		g_next_free_page[bank] = pbn * PAGES_PER_BANK;
+		uart_printf("get init rsrv pbn %d\n", pbn);
+		g_next_free_page[bank] = pbn * PAGES_PER_BLK;
 	}
 }
 
@@ -396,7 +398,8 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 			{
 				uart_printf("ftl_read 1\n");
 				//no delta
-				load_original_data(bank, ppa, RD_BUF_PTR(g_ftl_read_buf_id));	//load original data -> 델타없는거니 nand read만하면될듯
+				//load_original_data(bank, ppa,);	//load original data -> 델타없는거니 nand read만하면될듯
+				nand_page_read(bank, get_pbn(ppa), get_offset(ppa), RD_BUF_PTR(g_ftl_read_buf_id));
 			}
 			else
 			{
@@ -963,7 +966,7 @@ static UINT32 get_data_ppa(UINT32 const bank, UINT32 const lpa)
 // set data ppa to data page mapping table
 static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa)
 {
-	ASSERT(lpa < DATA_BLK_PER_BANK);
+	ASSERT(lpa < DATA_PAGES_PER_BANK);
 	ASSERT(ppa < VBLKS_PER_BANK * PAGES_PER_BLK);
 
 	write_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)), ppa);
