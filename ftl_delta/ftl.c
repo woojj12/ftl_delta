@@ -7,7 +7,6 @@
 #include "jasmine.h"
 #include "lzf.h"
 
-
 #define MAX_COMPRESS_SIZE	(BYTES_PER_PAGE / 2)//2048				//MAX COMPRESS SIZE : 2K(50%)
 #define MAX_DELTAS_PER_PAGE			10
 #define MIN_RSRV_BLK		5
@@ -19,14 +18,27 @@
 UINT32 				  g_ftl_read_buf_id;
 UINT32 				  g_ftl_write_buf_id;
 
-UINT32 next_delta_offset[NUM_BANKS];						//next delta offset
-UINT32 next_delta_meta[NUM_BANKS];						//next delta metadata
+static UINT32 g_next_free_page[NUM_BANKS];
+static UINT32 g_delta_pmt_pointer;
+static UINT32 next_delta_offset[NUM_BANKS];						//next delta offset
+static UINT32 next_delta_meta[NUM_BANKS];						//next delta metadata
 
-UINT16 lfsr = 0xACE1u;
-UINT16 bit;
+static BOOL32         g_bsp_isr_flag[NUM_BANKS];
+static misc_metadata  g_misc_meta[NUM_BANKS];
+static UINT32		  g_bad_blk_count[NUM_BANKS];
 
 #define get_pbn(ppa)		((ppa) / PAGES_PER_BLK)
 #define get_offset(ppa)		((ppa) % PAGES_PER_BLK)
+#define get_delta_ppa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1))
+#define get_delta_lpa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2)
+#define set_delta_ppa(OFFSET, PPA)	write_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1), PPA)
+#define set_delta_lpa(OFFSET, LPA)	write_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2, LPA)
+#define get_ppa_delta(LPA)		get_delta_ppa(get_delta_map_offset(LPA))
+
+#define set_mapblk_vpn(bank, mapblk_lbn, vpn) (g_misc_meta[bank].cur_mapblk_vpn[mapblk_lbn] = vpn)
+#define MISCBLK_VBN         0x1 // vblock #1 <- misc metadatavpn++)
+#define set_miscblk_vpn(bank, vpn)           (g_misc_meta[bank].cur_miscblk_vpn = vpn)
+#define CHECK_VPAGE(vpn)                     ASSERT((vpn) < (NUM_BANKS * VBLKS_PER_BANK * PAGES_PER_BLK))
 
 //function list
 static void format(void);
@@ -38,31 +50,24 @@ static void format(void);
 static void init_metadata_sram(void);
 
 //read stream function
-UINT32 is_in_write_buffer(void);		//is in write buffer?
-UINT32 is_in_cache(void);			//is in cache?
 static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 const buf_addr);
 
 //void read_from_delta(UINT32 const bank, UINT32 delta_ppa);		//read delta
-void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const buf_addr);		//read delta to buf_addr
-UINT32 in_protected_region();		//was ppa in slru protected region (before pop)
-UINT32 find_delta_data(UINT32 buf_ptr, UINT32 delta_ppa);		//find delta data in temp_buffer;
-void _lzf_decompress (UINT32 const in_data, UINT32 const out_data);		//decompress data
+static void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const buf_addr);		//read delta to buf_addr
+static UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const delta_ppa);		//find delta data in temp_buffer;
+static void _lzf_decompress (UINT32 const in_data, UINT32 const out_data);		//decompress data
 
 //write stream function (not in read stream function)
 static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_sectors);				//write(not in write buffer)
-void load_original_data_write(UINT32 bank, UINT32 old_ppa, UINT32 page_offset, UINT32 num_sectors);		//load original data for write
-void write_to_delta(UINT32 bank, UINT32 lpa, UINT32 buf_addr);		//write to delta write buffer
-UINT32 get_free_page(UINT32 const bank);		//get free page
-void save_original_data(UINT32 bank, UINT32 new_ppa, UINT32 page_offset, UINT32 column_cnt);		//write as original data
-UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data);		//compress by lzf
-UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs);	//is remain in delta_write_buffer?
-void save_delta_page(UINT32 bank, UINT32 delta_ppa);		//save delta page in flash
-//void put_delta(UINT32 bank, UINT32 const lpa, UINT32 const offset, UINT32 cs);			//put delta data in delta_write_buffer
+static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr);		//write to delta write buffer
+static UINT32 get_free_page(UINT32 const bank);		//get free page
+static UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data);		//compress by lzf
+static UINT32 is_remain_delta_buffer(UINT32 const bank, UINT32 const cs);	//is remain in delta_write_buffer?
 
 //address related function
-UINT32 set_valid_ppa(UINT32 ppa);		//set valid ppa
-UINT32 set_invalid_ppa(UINT32 ppa);		//set invalid ppa
-BOOL32 is_valid_ppa(UINT32 ppa);		//is valid ppa?
+static UINT32 set_valid_ppa(UINT32 const ppa);		//set valid ppa
+static UINT32 set_invalid_ppa(UINT32 const ppa);		//set invalid ppa
+static BOOL32 is_valid_ppa(UINT32 const ppa);		//is valid ppa?
 
 static UINT32 get_rsrv_pbn(UINT32 const bank, BOOL32 const gc);						//reserved block -> using block
 static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock);	//gc block -> reserved block
@@ -70,36 +75,20 @@ static void ret_rsrv_pbn(UINT32 const bank, UINT32 const vblock);	//gc block -> 
 static UINT32 get_data_ppa(UINT32 const bank, UINT32 const lpa);	// get data ppa from data page mapping table
 static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa);	// set data ppa to data page mapping table
 
-UINT32 rand();				//random number generation
 static void garbage_collection(UINT32 const bank);		//garbage collection
-void delta_copy(UINT32 bank, UINT32 lpa, UINT32 offset);	//delta copy
 //static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa);	//is in delta mapping?
 
 /////////////////////////////////////////////
 
-static UINT32		  g_bad_blk_count[NUM_BANKS];
 static BOOL32 is_bad_block(UINT32 const bank, UINT32 const vblk_offset);
 static void   set_bad_block(UINT32 const bank, UINT32 const vblk_offset);
-#define set_mapblk_vpn(bank, mapblk_lbn, vpn) (g_misc_meta[bank].cur_mapblk_vpn[mapblk_lbn] = vpn)
-static BOOL32         g_bsp_isr_flag[NUM_BANKS];
-static misc_metadata  g_misc_meta[NUM_BANKS];
-#define MISCBLK_VBN         0x1 // vblock #1 <- misc metadatavpn++)
-#define set_miscblk_vpn(bank, vpn)           (g_misc_meta[bank].cur_miscblk_vpn = vpn)
-#define CHECK_VPAGE(vpn)                     ASSERT((vpn) < (NUM_BANKS * VBLKS_PER_BANK * PAGES_PER_BLK))
-#define get_delta_ppa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1))
-#define get_delta_lpa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2)
-#define set_delta_ppa(OFFSET, PPA)	write_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1), PPA)
-#define set_delta_lpa(OFFSET, LPA)	write_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2, LPA)
 static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst);
 static void merge(UINT32 const bank, UINT32 const lpa, UINT32 const ppa_delta, UINT32 const buf_ptr);
-UINT32 g_next_free_page[NUM_BANKS];
-UINT32 g_delta_pmt_pointer;
-#define get_ppa_delta(LPA)		get_delta_ppa(get_delta_map_offset(LPA))
 static UINT32 get_delta_map_offset(UINT32 const lpa);
-//static UINT32 get_ppa_delta(UINT32 const lpa);
-BOOL32 compress(UINT32 buf_data, UINT32 buf_write);
+static BOOL32 compress(UINT32 const buf_data, UINT32 const buf_write);
 
 static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa);
+static UINT32 rand(void);
 
 static void sanity_check(void)
 {
@@ -450,7 +439,7 @@ static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 c
 	nand_page_read(bank, get_pbn(ori_ppa), get_offset(ori_ppa), buf_addr);
 }
 
-void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const dst_buf)		//read delta to buf_addr
+static void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const dst_buf)		//read delta to buf_addr
 {
 	UINT32 delta_read_start;			//pointer(start of delta)
 	UINT32 pbn, offset;					//vbn of delta_ppa, offset of delta_ppa in vbn
@@ -475,7 +464,7 @@ void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa
 	return;
 }
 
-UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find delta data in temp_buffer;
+static UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find delta data in temp_buffer;
 {
 	UINT32 i;
 
@@ -500,7 +489,7 @@ UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find delta dat
 	}
 }
 
-void _lzf_decompress (UINT32 const in_data, UINT32 const out_data)        //decompress data
+static void _lzf_decompress (UINT32 const in_data, UINT32 const out_data)        //decompress data
 {
 	UINT16 cs;
 	UINT16 header1[BYTES_PER_PAGE];		//compressed buffer
@@ -747,7 +736,7 @@ GET_NEXT_DELTA_TABLE_SPACE_END:
 	return g_delta_pmt_pointer;
 }
 
-void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr)	//write to delta write buffer
+static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr)	//write to delta write buffer
 {
 	UINT16 cs;
 	UINT32 i;
@@ -807,7 +796,7 @@ void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr)	
 	
 }
 
-UINT32 get_free_page(UINT32 const bank)				//get free page
+static UINT32 get_free_page(UINT32 const bank)				//get free page
 {
 	//ftl_open 할 때
 	//free block 하나 잡아서 g_next_free_page 세팅 해줘야 함
@@ -843,7 +832,7 @@ UINT32 get_free_page(UINT32 const bank)				//get free page
 */
 //buf_data : 원래 nand에 있던 페이지, buf_write : write시 새로 쓰이는 페이지
 //BOOL32 compress(TEMP_BUF_PTR(0), WR_BUF_PTR(g_ftl_write_buf_id))
-BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
+static BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 {
 	BOOL32 success;
 
@@ -858,7 +847,7 @@ BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 	return success;
 }
 
-UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
+static UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 {
 	UINT16 cs;
 	UINT16 header1[BYTES_PER_PAGE];        //decompressed buffer
@@ -882,7 +871,7 @@ UINT32 _lzf_compress (UINT32 const in_data, UINT32 const out_data)
 }
 
 
-UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs)	//is remain in delta_buffer?
+static UINT32 is_remain_delta_buffer(UINT32 const bank, UINT32 const cs)	//is remain in delta_buffer?
 {
 	if((next_delta_offset[bank] + cs) > BYTES_PER_PAGE)
 	{
@@ -897,46 +886,17 @@ UINT32 is_remain_delta_buffer(UINT32 bank, UINT32 cs)	//is remain in delta_buffe
 
 }
 
-void save_delta_page(UINT32 const bank, UINT32 const delta_ppa)		//save delta page in flash
-{
-	UINT32 i;
-	UINT32 lpa, ppa;
-	UINT32 pbn, offset;
-	UINT32 cnt = read_dram_32(DELTA_BUF(bank));
-	for(i = 0; i < cnt; i++)
-	{
-		lpa = read_dram_32(DELTA_BUF(bank) + (i * 2 + 1) * sizeof(UINT32));
-		ppa = get_ppa_delta(lpa);
-		//assign delta ppa page to ppa->delta_ppa
-	}
-	pbn = get_pbn(delta_ppa);
-	offset = get_offset(delta_ppa);
-	nand_page_program(bank, pbn, offset, DELTA_BUF(bank));
-}
-/*
-void put_delta(UINT32 bank, UINT32 const lpa, UINT32 const offset, UINT32 cs)			//put delta data in delta_buffer
-{
-	UINT16 header;
-	write_dram_32(next_delta_meta[bank], offset);
-	write_dram_32(next_delta_meta[bank] + sizeof(UINT32), lpa);
-	next_delta_meta[bank] = next_delta_meta[bank] + sizeof(UINT32);
-
-
-	mem_copy(next_delta_offset[bank], TEMP_BUF(1), cs);
-	next_delta_offset[bank] = next_delta_offset[bank] + (cs + sizeof(UINT32)-1) / sizeof(UINT32) * sizeof(UINT32);
-}
-*/
-UINT32 set_valid_ppa(UINT32 const ppa)
+static UINT32 set_valid_ppa(UINT32 const ppa)
 {
 	return VAL & ppa;
 }
 
-UINT32 set_invalid_ppa(UINT32 const ppa)
+static UINT32 set_invalid_ppa(UINT32 const ppa)
 {
 	return INVAL | ppa;
 }
 
-BOOL32 is_valid_ppa(UINT32 ppa)
+static BOOL32 is_valid_ppa(UINT32 ppa)
 {
 	if(INVAL & ppa)
 	{
@@ -990,7 +950,9 @@ static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa)
 	write_dram_32(DATA_PMT_ADDR + ((bank * DATA_PAGES_PER_BANK + lpa) * sizeof(UINT32)), ppa);
 }
 
-UINT32 rand()
+UINT16 lfsr = 0xACE1u;
+UINT16 bit;
+static UINT32 rand(void)
 {
 	bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5) ) & 1;
 	return lfsr =  (lfsr >> 1) | (bit << 15);
@@ -1041,9 +1003,9 @@ static void garbage_collection(UINT32 const bank)
 		if(is_data_page(lpa) == TRUE)
 		{
 			//data page라면
+			ppa = get_data_ppa(bank, lpa);
 
 			//Page Mapping에서 LPA에 해당하는 ppa를 찾자
-			ppa = get_data_ppa(bank, lpa);
 			UINT32 ppa_current = victim * PAGES_PER_BLK + offset;
 
 			//요놈이 최신?? 매핑에 있는놈인가??
@@ -1114,7 +1076,7 @@ static void garbage_collection(UINT32 const bank)
 					else
 					{
 						UINT32 delta_ppa = get_delta_ppa(delta_map_offset);
-						if(delta_ppa == ppa)
+						if(delta_ppa == victim*PAGES_PER_BLK + offset)
 						{
 							/*
 							 * 델타 매핑에 있고
