@@ -46,7 +46,7 @@ static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 c
 void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const buf_addr);		//read delta to buf_addr
 UINT32 in_protected_region();		//was ppa in slru protected region (before pop)
 UINT32 find_delta_data(UINT32 buf_ptr, UINT32 delta_ppa);		//find delta data in temp_buffer;
-void _lzf_decompress (const void *const in_data, void *out_data);		//decompress data
+void _lzf_decompress (UINT32 const in_data, UINT32 const out_data);		//decompress data
 
 //write stream function (not in read stream function)
 static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_sectors);				//write(not in write buffer)
@@ -89,7 +89,7 @@ static misc_metadata  g_misc_meta[NUM_BANKS];
 #define get_delta_ppa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1))
 #define get_delta_lpa(OFFSET)	read_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2)
 #define set_delta_ppa(OFFSET, PPA)	write_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * (OFFSET * 2 + 1), PPA)
-#define set_delta_lpa(OFFSET, LPA)	wirte_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2, LPA)
+#define set_delta_lpa(OFFSET, LPA)	write_dram_32(DELTA_PMT_ADDR + sizeof(UINT32) * OFFSET * 2, LPA)
 static void xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst);
 static void merge(UINT32 const bank, UINT32 const lpa, UINT32 const ppa_delta, UINT32 const buf_ptr);
 UINT32 g_next_free_page[NUM_BANKS];
@@ -97,6 +97,7 @@ UINT32 g_delta_pmt_pointer;
 #define get_ppa_delta(LPA)		get_delta_ppa(get_delta_map_offset(LPA))
 static UINT32 get_delta_map_offset(UINT32 const lpa);
 //static UINT32 get_ppa_delta(UINT32 const lpa);
+BOOL32 compress(UINT32 buf_data, UINT32 buf_write);
 
 static UINT32 get_next_delta_table_space(UINT32 const bank, UINT32 const lpa);
 
@@ -401,7 +402,7 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 			if(is_valid_ppa(ppa) == TRUE)
 			{
 				//no delta
-				load_original_data(bank, ppa, sect_offset, num_sectors_to_read, RD_BUF_PTR(g_ftl_read_buf_id));	//load original data -> 델타없는거니 nand read만하면될듯
+				load_original_data(bank, ppa, RD_BUF_PTR(g_ftl_read_buf_id));	//load original data -> 델타없는거니 nand read만하면될듯
 			}
 			else
 			{
@@ -476,7 +477,6 @@ void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa
 
 UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find delta data in temp_buffer;
 {
-	UINT32 offset;
 	UINT32 i;
 
 	//buf_ptr = buf_ptr + sizeof(UINT32);			//lpa starts at buf_ptr + 32
@@ -550,11 +550,10 @@ void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_sectors)				//write(not in write buffer)
 {
 	UINT32 bank, old_ppa, new_ppa;
-	UINT32 vblock, page_num, page_offset, column_cnt;
+	UINT32 page_offset;
 
 	bank        = lpa % NUM_BANKS; // page striping
 	page_offset = sect_offset;
-	column_cnt  = num_sectors;
 
 	//이번 매핑 읽어옴
 	old_ppa  = get_data_ppa(bank, lpa);
@@ -849,7 +848,7 @@ BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 
 	//buf_data, buf_write를 압축해서 TMP_BUF_PTR(1)로 보내준다.
 	//xor_buffer(UINT32 const src0, UINT32 const src1, UINT32 const dst);
-	xor_buffer(buf_data, buf_write, TEMP_BUF_PTR(1);
+	xor_buffer(buf_data, buf_write, TEMP_BUF_PTR(1));
 
 	//TEMP_BUF_PTR(1)에서 압축하여 TEMP_BUF_PTR(2)로 보내준다.
 	//success는 _lzf_compress가 성공적으로 되었는지를 알려준다.
