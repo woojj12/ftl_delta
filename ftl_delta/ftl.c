@@ -904,10 +904,9 @@ static UINT32 _lzf_compress (UINT32 in_data, UINT32 out_data)
 		out_data = out_data + cs_cluster + sizeof(UINT16);
 	}
 
-	if ((cs < MAX_COMPRESS_SIZE - sizeof(UINT16)) && cs > 0)
+	if ((cs < MAX_COMPRESS_SIZE) && cs > 0)
 	{
 		mem_set_dram(out_data, cs, sizeof(UINT16));
-		cs = cs + sizeof(UINT16);
 	}
 	else
 	{                       // write uncompressed
