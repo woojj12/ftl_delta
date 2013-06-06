@@ -154,6 +154,7 @@ void ftl_open(void)
 	SETREG(FCONF_PAUSE, FIRQ_DATA_CORRUPT | FIRQ_BADBLK_L | FIRQ_BADBLK_H);
 
 	enable_irq();
+	uart_print("boot complete");
 }
 
 static void format(void)
@@ -182,7 +183,7 @@ static void format(void)
 	//----------------------------------------
 	// data/log/isolation/free block mapping table
 
-	mem_set_dram(DATA_PMT_ADDR, 0xFF, DATA_PMT_BYTES);
+	mem_set_dram(DATA_PMT_ADDR, NULL, DATA_PMT_BYTES);
 	mem_set_dram(DELTA_PMT_ADDR, 0xFF, DELTA_PMT_BYTES);
 	mem_set_dram(RSRV_BMT_ADDR, NULL, RSRV_BMT_BYTES);
 
@@ -203,9 +204,9 @@ static void format(void)
 				continue;
 			}
 			nand_block_erase_sync(bank, vblock);
-			if (g_bsp_isr_flag[bank] != INVAL) {
+			if (g_bsp_isr_flag[bank] != INVALID) {
 				set_bad_block(bank, g_bsp_isr_flag[bank]);
-				g_bsp_isr_flag[bank] = INVAL;
+				g_bsp_isr_flag[bank] = INVALID;
 				continue;
 			}
 			set_mapblk_vpn(bank, lbn, vblock * PAGES_PER_BLK - 1);
@@ -221,9 +222,9 @@ static void format(void)
 				continue;
 			}
 			nand_block_erase_sync(bank, vblock);
-			if (g_bsp_isr_flag[bank] != INVAL) {
+			if (g_bsp_isr_flag[bank] != INVALID) {
 				set_bad_block(bank, g_bsp_isr_flag[bank]);
-				g_bsp_isr_flag[bank] = INVAL;
+				g_bsp_isr_flag[bank] = INVALID;
 				continue;
 			}
 			ret_rsrv_pbn(bank, vblock);
@@ -385,24 +386,31 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 		ppa  =  get_data_ppa(bank, lpa);	//ppa구함
 		CHECK_VPAGE(ppa);
 
+		uart_printf("ftl_read\n");
+
 		////////////////////////////////////////////////////////////////
 		if (ppa != NULL)
 		{
+			uart_printf("ppa = %d\n", ppa);
 			if(is_valid_ppa(ppa) == TRUE)
 			{
+				uart_printf("ftl_read 1\n");
 				//no delta
 				load_original_data(bank, ppa, RD_BUF_PTR(g_ftl_read_buf_id));	//load original data -> 델타없는거니 nand read만하면될듯
 			}
 			else
 			{
+				uart_printf("ftl_read 2\n");
 				//there is delta
 				merge(bank, lpa, get_ppa_delta(lpa), RD_BUF_PTR(g_ftl_read_buf_id));
 			}
+			uart_printf("ftl_read 12\n");
 			g_ftl_read_buf_id = (g_ftl_read_buf_id + 1) % NUM_RD_BUFFERS;
 			////////////////////////////////////////////////////////////////
 		}
 		else
 		{
+			uart_printf("ftl_read 3\n");
 			UINT32 next_read_buf_id = (g_ftl_read_buf_id + 1) % NUM_RD_BUFFERS;
 
 #if OPTION_FTL_TEST == 0
@@ -436,7 +444,9 @@ static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 c
 {
 	//꼭 partial page로 읽어야할 이유가 있음???
 	//nand_page_ptread_to_host(bank, ori_ppa / PAGES_PER_BLK, ori_ppa % PAGES_PER_BLK, sect_offset, num_sectors_to_read);
+	uart_printf("load_original in\n");
 	nand_page_read(bank, get_pbn(ori_ppa), get_offset(ori_ppa), buf_addr);
+	uart_printf("load_original in\n");
 }
 
 static void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const dst_buf)		//read delta to buf_addr
@@ -549,6 +559,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 
 	if(old_ppa != NULL)
 	{
+		uart_printf("evict 1\n");
 		/*
 		 * 썼던적이 있네~
 		 * 압축해봐야지
@@ -560,6 +571,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		 */
 		if(num_sectors != SECTORS_PER_PAGE)
 		{
+		uart_printf("evict 2\n");
 			if(page_offset != 0)
 			{
 				mem_copy(WR_BUF_PTR(g_ftl_write_buf_id), TEMP_BUF_PTR(0), page_offset * BYTES_PER_SECTOR);
@@ -581,6 +593,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 
 		if(comp_success == TRUE)
 		{
+			uart_printf("evict 3\n");
 			//압축 성공
 			//데이터매핑테이블 업데이트
 			old_ppa = set_invalid_ppa(old_ppa);
@@ -609,12 +622,14 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		}
 		else
 		{
+		uart_printf("evict 4\n");
 			//압축 실패
 			goto WRITE_ORIGINAL;
 		}
 	}
 	else
 	{
+		uart_printf("evict 5\n");
 		/*
 		 * 한번도 안썼음
 		 * 그냥 씀
@@ -635,7 +650,11 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 		}
 
 		WRITE_ORIGINAL:
+		uart_printf("evict 6\n");
 		new_ppa = get_free_page(bank);
+
+		uart_printf("got ppa = %d\n", new_ppa);
+
 		set_data_ppa(bank, lpa, new_ppa);
 		nand_page_program(bank, get_pbn(new_ppa), get_offset(new_ppa), WR_BUF_PTR(g_ftl_write_buf_id));
 		write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(g_next_free_page[bank]), lpa);
@@ -801,8 +820,6 @@ static UINT32 get_free_page(UINT32 const bank)				//get free page
 	//ftl_open 할 때
 	//free block 하나 잡아서 g_next_free_page 세팅 해줘야 함
 
-	g_next_free_page[bank]++;
-
 	//if(g_next_free_page[bank] == 블록의 마지막 페이지)
 	if((g_next_free_page[bank]+1) % PAGES_PER_BLK == 0)
 	{
@@ -810,6 +827,8 @@ static UINT32 get_free_page(UINT32 const bank)				//get free page
 
 		UINT32 pbn = get_rsrv_pbn(bank, FALSE);
 		g_next_free_page[bank] = pbn * PAGES_PER_BLK;
+
+		return g_next_free_page[bank];
 		/*
 		버퍼 하나 잡아서
 		g_lpas_current_blk[bank] 카피
@@ -821,7 +840,7 @@ static UINT32 get_free_page(UINT32 const bank)				//get free page
 		 */
 	}
 
-	return g_next_free_page[bank];
+	return g_next_free_page[bank]++;
 }
 /*
 * 압축하는 함수
