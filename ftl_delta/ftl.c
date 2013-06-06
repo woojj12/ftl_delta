@@ -8,9 +8,9 @@
 #include "lzf.h"
 
 #define NUM_COMP_CLUSTER		16
-#define MAX_CLUSTER_SIZE		(BYTES_PER_PAGE / NUM_COMP_CLUSTER)
+#define CLUSTER_SIZE			(BYTES_PER_PAGE / NUM_COMP_CLUSTER)
 
-#define MAX_COMPRESS_SIZE		(MAX_COMPRESS_SIZE / 2)				//2048		//MAX COMPRESS SIZE : 2K(50%)
+#define MAX_COMPRESS_SIZE		(CLUSTER_SIZE / 2)				//2048		//MAX COMPRESS SIZE : 2K(50%)
 #define MAX_DELTAS_PER_PAGE			10
 #define MIN_RSRV_BLK		5
 
@@ -507,7 +507,7 @@ static void _lzf_decompress (UINT32 in_data, UINT32 out_data)        //decompres
 		cs = read_dram_16(in_data);			//cs = header(compressed size)
 		mem_copy(header1, in_data + sizeof(UINT16), cs);	// copy compressed data to header1(SRAM)
 
-		ASSERT (lzf_decompress (header1, cs, header2, CLUSTER_SIZE) == CLUSTER_SIZE);
+		ASSERT (lzf_decompress (header1, cs, header2, ) == CLUSTER_SIZE);
 
 		mem_copy(out_data, header2, CLUSTER_SIZE);
 
