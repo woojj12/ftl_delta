@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 
-#ifndef	PERI_H
+#ifndef  PERI_H
 #define	PERI_H
 
 ///////////////////
