@@ -1126,7 +1126,7 @@ static void garbage_collection(UINT32 const bank)
 					else
 					{
 						UINT32 delta_ppa = get_delta_ppa(delta_map_offset);
-						if(delta_ppa == victim*PAGES_PER_BLK + delta_map_offset)
+						if(delta_ppa == victim*PAGES_PER_BLK + offset)
 						{
 							/*
 							 * 델타 매핑에 있고
