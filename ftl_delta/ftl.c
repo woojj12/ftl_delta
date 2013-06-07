@@ -9,6 +9,7 @@
 
 #define NUM_COMP_CLUSTER		16
 #define CLUSTER_SIZE			(BYTES_PER_PAGE / NUM_COMP_CLUSTER)
+#define ALIGN32(data)			((data + sizeof(UINT32) - 1) / sizeof(UINT32) * sizeof(UINT32))
 
 #define MAX_COMPRESS_SIZE		(CLUSTER_SIZE / 2)				//2048		//MAX COMPRESS SIZE : 2K(50%)
 #define MAX_DELTAS_PER_PAGE			10
@@ -58,13 +59,12 @@ static void load_original_data(UINT32 const bank, UINT32 const ori_ppa, UINT32 c
 //void read_from_delta(UINT32 const bank, UINT32 delta_ppa);		//read delta
 static void read_from_delta(UINT32 const bank, UINT32 const lpa, UINT32 const delta_ppa, UINT32 const buf_addr);		//read delta to buf_addr
 static UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const delta_ppa);		//find delta data in temp_buffer;
-static void _lzf_decompress (UINT32 in_data, UINT32 out_data);		//decompress data
+
 
 //write stream function (not in read stream function)
 static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_sectors);				//write(not in write buffer)
 static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf_addr);		//write to delta write buffer
 static UINT32 get_free_page(UINT32 const bank);		//get free page
-static UINT32 _lzf_compress (UINT32 in_data, UINT32 out_data);		//compress by lzf
 static UINT32 is_remain_delta_buffer(UINT32 const bank, UINT32 const cs);	//is remain in delta_write_buffer?
 
 //address related function
@@ -80,6 +80,10 @@ static void set_data_ppa(UINT32 const bank, UINT32 const lpa, UINT32 const ppa);
 
 static void garbage_collection(UINT32 const bank);		//garbage collection
 //static BOOL32 is_in_delta_map(UINT32 const lpa, UINT32 const ppa);	//is in delta mapping?
+
+//lzf comp & decomp function
+static UINT32 _lzf_compress (UINT32 const in_data_base, UINT32 const out_data_base);		//compress by lzf
+static void _lzf_decompress (UINT32 const in_data_base, UINT32 const out_data_base);		//decompress data
 
 /////////////////////////////////////////////
 
@@ -495,26 +499,6 @@ static UINT32 find_delta_data(UINT32 const buf_ptr, UINT32 const lpa)		//find de
 	}
 }
 
-static void _lzf_decompress (UINT32 in_data, UINT32 out_data)        //decompress data
-{
-	UINT16 cs;
-	volatile UINT16 header1[CLUSTER_SIZE];		//compressed buffer
-	volatile UINT16 header2[CLUSTER_SIZE];		//decompressed buffer
-	UINT32 i;
-
-	for(i = 0; i < NUM_COMP_CLUSTER; i++)
-	{
-		cs = read_dram_16(in_data);			//cs = header(compressed size)
-		mem_copy(header1, in_data + sizeof(UINT16), cs);	// copy compressed data to header1(SRAM)
-
-		ASSERT (lzf_decompress (header1, cs, header2, ) == CLUSTER_SIZE);
-
-		mem_copy(out_data, header2, CLUSTER_SIZE);
-
-		in_data = in_data + cs;
-		out_data = out_data + CLUSTER_SIZE;
-	}
-}
 
 
 //write stream function (not in read stream function)
@@ -595,8 +579,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 
 		BOOL32 comp_success = compress(TEMP_BUF_PTR(0), WR_BUF_PTR(g_ftl_write_buf_id));
 
-		//if(comp_success == TRUE)
-		if(NULL)
+		if(comp_success == TRUE)
 		{
 			uart_printf("evict 3\n");
 			//압축 성공
@@ -808,6 +791,8 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 		vblock = get_pbn(delta_ppn);
 		voffset = get_offset(delta_ppn);
 		nand_page_program(bank, vblock, voffset, DELTA_BUF(bank));
+
+		//LPA BUF에도 써줌!!
 		write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(delta_ppn), lpa);
 
 		//델타 메타, offset 초기화 해주기
@@ -878,46 +863,6 @@ static BOOL32 compress(UINT32 buf_data, UINT32 buf_write)
 	uart_printf("lzf_compress : %d", success);
 
 	return success;
-}
-
-static UINT32 _lzf_compress (UINT32 in_data, UINT32 out_data)
-{
-	UINT16 cs = 0;
-	UINT16 cs_cluster;
-	volatile UINT16 header1[CLUSTER_SIZE];        //decompressed buffer
-	volatile UINT16 header2[CLUSTER_SIZE + 1];    //compressed buffer
-	UINT32 i;
-
-	uart_printf("BPP : %ld", CLUSTER_SIZE);
-	uart_printf("header1 : %d in_data %x h1 + BPP : %d\n", header1, in_data, header1 + CLUSTER_SIZE);
-	uart_printf("header2 : %d", header2);
-
-	for(i = 0; i < NUM_COMP_CLUSTER; i++)
-	{
-		mem_copy(header1, in_data, CLUSTER_SIZE);
-
-		cs_cluster = lzf_compress (header1, CLUSTER_SIZE, &header2[1], CLUSTER_SIZE - 4);	//compressed size of one cluster
-
-		mem_copy(out_data + sizeof(UINT16), header2, cs_cluster);
-
-		cs = cs + cs_cluster + sizeof(UINT16);			//cs = cs + compressed data length + header
-
-		in_data = in_data + CLUSTER_SIZE;
-		out_data = out_data + cs_cluster + sizeof(UINT16);
-	}
-
-	if ((cs < MAX_COMPRESS_SIZE) && cs > 0)
-	{
-		mem_set_dram(out_data, cs, sizeof(UINT16));
-	}
-	else
-	{                       // write uncompressed
-		return 0;
-	}
-
-	uart_printf("lzf_out");
-
-	return cs;
 }
 
 
@@ -1132,7 +1077,7 @@ static void garbage_collection(UINT32 const bank)
 							 * 델타 매핑에 있고
 							 * 요놈이 거기 써진 ppa가 맞아!
 							 */
-							set_delta_ppa(delta_map_offset, 0);
+							set_delta_ppa(offset, 0);
 							UINT32 delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
 							write_to_delta(bank, lpa, delta_data_offset);
 						}
@@ -1261,4 +1206,70 @@ void ftl_isr(void)
 			}
 		}
     }
+}
+
+static UINT32 _lzf_compress (UINT32 const in_data_base, UINT32 const out_data_base)
+{
+	UINT16 cs = 0;
+	UINT16 cs_cluster;
+	volatile UINT16 header1[CLUSTER_SIZE + 1];    //decompressed buffer
+	volatile UINT16 header2[CLUSTER_SIZE + 1];    //compressed buffer
+	UINT32 i;
+	UINT32 in_data = in_data_base;
+	UINT32 out_data = out_data_base + sizeof(UINT32);	//front of out_data_base : cs
+
+	for(i = 0; i < NUM_COMP_CLUSTER; i++)
+	{
+		mem_copy(header1, in_data, CLUSTER_SIZE);
+
+		cs_cluster = lzf_compress (header1, CLUSTER_SIZE, &header2[1], CLUSTER_SIZE - 4);	//compressed size of one cluster
+		
+		//memory check
+		cs = cs + ALIGN32(cs_cluster) + sizeof(UINT32);			//cs = cs + compressed data length + header
+		if(cs >= MAX_COMPRESS_SIZE)
+		{
+			return 0;											//write uncompressed
+		}
+
+		//write meta & data
+		write_dram_16(out_data, cs_cluster);
+		mem_copy(out_data + sizeof(UINT32), header2, ALIGN32(cs_cluster));
+
+		//next cluster
+		in_data = in_data + CLUSTER_SIZE;
+		out_data = out_data + ALIGN32(cs_cluster) + sizeof(UINT32);
+
+	}
+
+	write_dram_16(out_data_base, cs);		//write cs
+
+	return cs;
+}
+
+static void _lzf_decompress (UINT32 const in_data_base, UINT32 const out_data_base)        //decompress data
+{
+	UINT16 cs;
+	UINT16 cs_cluster;
+	volatile UINT16 header1[CLUSTER_SIZE];		//compressed buffer
+	volatile UINT16 header2[CLUSTER_SIZE];		//decompressed buffer
+	UINT32 i;
+	UINT32 in_data = in_data_base + sizeof(UINT32);
+	UINT32 out_data = out_data_base;
+
+	cs = read_dram_16(in_data_base);
+
+	for(i = 0; i < NUM_COMP_CLUSTER; i++)
+	{
+		//load meta & data
+		cs_cluster = read_dram_16(in_data);		//자료크기 읽음
+		mem_copy(header1, in_data + sizeof(UINT32), ALIGN32(cs_cluster));	// copy compressed data to header1(SRAM)
+
+		ASSERT (lzf_decompress (header1, cs_cluster, header2, CLUSTER_SIZE) == CLUSTER_SIZE);
+
+		mem_copy(out_data, header2, CLUSTER_SIZE);		// copy decompressed data to out_data(DRAM)
+
+		//next cluster
+		in_data = in_data + ALIGN32(cs_cluster) + sizeof(UINT32);
+		out_data = out_data + CLUSTER_SIZE;
+	}
 }
