@@ -52,7 +52,8 @@
  * For best compression, use 15 or 16 (or more, up to 22).
  */
 #ifndef HLOG
-# define HLOG 16
+//# define HLOG 16
+# define HLOG 13
 #endif
 
 /*
@@ -166,7 +167,7 @@ typedef unsigned char u8;
 typedef LZF_HSLOT LZF_STATE[1 << (HLOG)];
 
 #if !STRICT_ALIGN
-/* for unaligned accesses we need a 16 bit datatype. */
+ //for unaligned accesses we need a 16 bit datatype. 
 # if USHRT_MAX == 65535
     typedef unsigned short u16;
 # elif UINT_MAX == 65535
@@ -183,3 +184,4 @@ typedef LZF_HSLOT LZF_STATE[1 << (HLOG)];
 
 #endif
 
+//HLOG 16
