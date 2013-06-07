@@ -35,6 +35,7 @@
  */
 
 #include "lzfP.h"
+#include "jasmine.h"
 
 #if AVOID_ERRNO
 # define SET_ERRNO(n)
@@ -61,16 +62,21 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
   u8 const *const in_end  = ip + in_len;
   u8       *const out_end = op + out_len;
 
+
+  uart_printf("op : %x out_data %x", op, out_data);
+
+
   do
     {
       unsigned int ctrl = *ip++;
-
+uart_printf("ctrl : %x", ctrl);
       if (ctrl < (1 << 5)) /* literal run */
         {
           ctrl++;
 
           if (op + ctrl > out_end)
             {
+uart_printf("op + ctrl > out_end");
               SET_ERRNO (E2BIG);
               return 0;
             }
@@ -78,6 +84,7 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 #if CHECK_INPUT
           if (ip + ctrl > in_end)
             {
+uart_printf("ip + ctrl > in_end");
               SET_ERRNO (EINVAL);
               return 0;
             }
@@ -104,10 +111,12 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
           unsigned int len = ctrl >> 5;
 
           u8 *ref = op - ((ctrl & 0x1f) << 8) - 1;
+uart_printf("%x = %x - %x - 1", ref, op, ((ctrl & 0x1f) << 8));
 
 #if CHECK_INPUT
           if (ip >= in_end)
             {
+uart_printf("ip >= in_end");
               SET_ERRNO (EINVAL);
               return 0;
             }
@@ -118,6 +127,7 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 #if CHECK_INPUT
               if (ip >= in_end)
                 {
+uart_printf("ip >= in_end");
                   SET_ERRNO (EINVAL);
                   return 0;
                 }
@@ -128,12 +138,14 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 
           if (op + len + 2 > out_end)
             {
+uart_printf("op + len + 2 > out_end");
               SET_ERRNO (E2BIG);
               return 0;
             }
 
           if (ref < (u8 *)out_data)
             {
+uart_printf("ref < (u8 *)out_data");
               SET_ERRNO (EINVAL);
               return 0;
             }
@@ -179,7 +191,6 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
         }
     }
   while (ip < in_end);
-
+uart_printf("op : %x out_data %x", op, out_data);
   return op - (u8 *)out_data;
 }
-
