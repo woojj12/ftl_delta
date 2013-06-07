@@ -595,7 +595,8 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 
 		BOOL32 comp_success = compress(TEMP_BUF_PTR(0), WR_BUF_PTR(g_ftl_write_buf_id));
 
-		if(comp_success == TRUE)
+		//if(comp_success == TRUE)
+		if(NULL)
 		{
 			uart_printf("evict 3\n");
 			//압축 성공
@@ -661,7 +662,7 @@ static void evict(UINT32 const lpa, UINT32 const sect_offset, UINT32 const num_s
 
 		set_data_ppa(bank, lpa, new_ppa);
 		nand_page_program(bank, get_pbn(new_ppa), get_offset(new_ppa), WR_BUF_PTR(g_ftl_write_buf_id));
-		write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(g_next_free_page[bank]), lpa);
+		write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(new_ppa), lpa);
 	}
 }
 
@@ -782,7 +783,7 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 			lpa_out = read_dram_32(buf_addr + (2 * i + 2) * sizeof(UINT32));
 			if(lpa_out == lpa)
 			{
-				mem_set_dram(buf_addr + (2 * i + 2) * sizeof(UINT32), INVALID, sizeof(UINT32));
+				mem_set_dram(buf_addr + (2 * i + 2) * sizeof(UINT32), INVAL, sizeof(UINT32));
 			}
 		}
 
@@ -807,6 +808,7 @@ static void write_to_delta(UINT32 const bank, UINT32 const lpa, UINT32 const buf
 		vblock = get_pbn(delta_ppn);
 		voffset = get_offset(delta_ppn);
 		nand_page_program(bank, vblock, voffset, DELTA_BUF(bank));
+		write_dram_32(LPA_BUF(bank) + sizeof(UINT32) * get_offset(delta_ppn), lpa);
 
 		//델타 메타, offset 초기화 해주기
 		next_delta_meta[bank] = DELTA_BUF(bank) + sizeof(UINT32);
@@ -899,7 +901,7 @@ static UINT32 _lzf_compress (UINT32 in_data, UINT32 out_data)
 		mem_copy(out_data + sizeof(UINT16), header2, cs_cluster);
 
 		cs = cs + cs_cluster + sizeof(UINT16);			//cs = cs + compressed data length + header
-		
+
 		in_data = in_data + CLUSTER_SIZE;
 		out_data = out_data + cs_cluster + sizeof(UINT16);
 	}
