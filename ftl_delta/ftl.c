@@ -1126,13 +1126,13 @@ static void garbage_collection(UINT32 const bank)
 					else
 					{
 						UINT32 delta_ppa = get_delta_ppa(delta_map_offset);
-						if(delta_ppa == victim*PAGES_PER_BLK + offset)
+						if(delta_ppa == victim*PAGES_PER_BLK + delta_map_offset)
 						{
 							/*
 							 * 델타 매핑에 있고
 							 * 요놈이 거기 써진 ppa가 맞아!
 							 */
-							set_delta_ppa(offset, 0);
+							set_delta_ppa(delta_map_offset, 0);
 							UINT32 delta_data_offset = read_dram_32(GC_BUF_PTR(1) + sizeof(UINT32) * ((delta_offset + 1) * 2 + 1));
 							write_to_delta(bank, lpa, delta_data_offset);
 						}
