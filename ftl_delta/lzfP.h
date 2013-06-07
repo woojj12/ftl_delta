@@ -183,5 +183,3 @@ typedef LZF_HSLOT LZF_STATE[1 << (HLOG)];
 #endif
 
 #endif
-
-//HLOG 16
