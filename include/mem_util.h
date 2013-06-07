@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 
-#ifndef	MEM_UTIL_H
+#ifndef  MEM_UTIL_H
 #define	MEM_UTIL_H
 
 
