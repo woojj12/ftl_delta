@@ -314,6 +314,10 @@ void ftl_open(void)
 	SETREG(FCONF_PAUSE, FIRQ_DATA_CORRUPT | FIRQ_BADBLK_L | FIRQ_BADBLK_H);
 
 	enable_irq();
+
+	uart_printf("MAPPINGS_PER_PAGE : %d", MAPPINGS_PER_PAGE);
+	uart_printf("GTD_SIZE_PER_BANK : %d", GTD_SIZE_PER_BANK);
+	uart_printf("MAPBLKS_PER_BANK : %d", MAPBLKS_PER_BANK);
 }
 void ftl_flush(void)
 {
@@ -426,18 +430,14 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
     column_cnt  = num_sectors;
 
     old_vpn  = get_vpn(lpn);
-    new_vpn  = assign_new_write_vpn(bank);
-
     CHECK_VPAGE (old_vpn);
-    CHECK_VPAGE (new_vpn);
-    ASSERT(old_vpn != new_vpn);
-    uart_printf("write lpn 0x%x at bank %d vpn 0x%x", lpn, bank, new_vpn);
 
 //    g_ftl_statistics[bank].page_wcount++;
 
     // if old data already exist,
     if (old_vpn != NULL)
     {
+    	uart_printf("write old exist");
         vblock   = old_vpn / PAGES_PER_BLK;
         page_num = old_vpn % PAGES_PER_BLK;
 
@@ -453,18 +453,18 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
             // To reduce flash memory access, valid hole copy into SATA write buffer after reading whole page
             // Thus, in this case, we need just one full page read + one or two mem_copy
             if ((num_sectors <= 8) && (page_offset != 0))
-            {                  
+            {
                 uart_printf("partial 1");
                 // one page async read
                 nand_page_read(bank,
                                vblock,
                                page_num,
-                               FTL_BUF(bank));
+                               TEMP_BUF_ADDR);//FTL_BUF(bank));
                 // copy `left hole sectors' into SATA write buffer
                 if (page_offset != 0)
                 {
                     mem_copy(WR_BUF_PTR(g_ftl_write_buf_id),
-                             FTL_BUF(bank),
+                             TEMP_BUF_ADDR,//FTL_BUF(bank),
                              page_offset * BYTES_PER_SECTOR);
                 }
                 // copy `right hole sectors' into SATA write buffer
@@ -473,7 +473,7 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
                     UINT32 const rhole_base = (page_offset + column_cnt) * BYTES_PER_SECTOR;
 
                     mem_copy(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base,
-                             FTL_BUF(bank) + rhole_base,
+                             TEMP_BUF_ADDR + rhole_base,
                              BYTES_PER_PAGE - rhole_base);
                 }
             }
@@ -511,6 +511,10 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
         // invalid old page (decrease vcount)
         set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
     }
+    new_vpn  = assign_new_write_vpn(bank);
+    CHECK_VPAGE (new_vpn);
+    ASSERT(old_vpn != new_vpn);
+    uart_printf("write lpn 0x%x at bank %d vpn 0x%x", lpn, bank, new_vpn);
     vblock   = new_vpn / PAGES_PER_BLK;
     page_num = new_vpn % PAGES_PER_BLK;
     ASSERT(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1));
@@ -550,25 +554,38 @@ static UINT32 get_vpn(UINT32 const lpn)
     /*
      * now get the mapping info
      */
-    UINT32 gtd_index = lpn / MAPPINGS_PER_PAGE;
+    UINT32 gtd_index = lpn / (MAPPINGS_PER_PAGE*NUM_BANKS);
     UINT32 mapping_bank = get_num_bank(lpn);
     UINT32 mapping_vpn = gtd[mapping_bank][gtd_index];
 
     if(mapping_vpn == INVALID)
     	return NULL;
 
-    uart_printf("get vpn at index %d", cmt_hand);
+    uart_printf("get vpn to index %d", cmt_hand);
 
     nand_page_read(mapping_bank,
     		mapping_vpn / PAGES_PER_BLK,
     		mapping_vpn % PAGES_PER_BLK,
-    		TEMP_BUF_ADDR);
+    		TEMP_BUF_ADDR);//TEMP_BUF_ADDR);
     cmt[cmt_hand].lpn = lpn;
     uart_printf("read offset %d", sizeof(UINT32) * ((lpn/NUM_BANKS) % MAPPINGS_PER_PAGE));
     cmt[cmt_hand].vpn = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * ((lpn/NUM_BANKS) % MAPPINGS_PER_PAGE));
     cmt[cmt_hand].sc = TRUE;
 
     UINT32 ret = cmt[cmt_hand].vpn;
+
+    uart_printf("get_vpn written vpn 0x%x", cmt[cmt_hand].vpn);
+//    if(ret != 0)
+    {
+    	UINT32 vpn[5];
+    	vpn[0] = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * (((lpn/NUM_BANKS) % MAPPINGS_PER_PAGE)-2));
+    	vpn[1] = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * (((lpn/NUM_BANKS) % MAPPINGS_PER_PAGE)-1));
+    	vpn[2] = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * (((lpn/NUM_BANKS) % MAPPINGS_PER_PAGE)));
+    	vpn[3] = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * (((lpn/NUM_BANKS) % MAPPINGS_PER_PAGE)+1));
+    	vpn[4] = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * (((lpn/NUM_BANKS) % MAPPINGS_PER_PAGE)+2));
+    	uart_printf("vpn 0x%x 0x%x 0x%x 0x%x 0x%x", vpn[0], vpn[1], vpn[2], vpn[3], vpn[4]);
+    }
+
     cmt_hand = (cmt_hand + 1) % CMT_SIZE;
     return ret;
 }
@@ -595,7 +612,7 @@ static void evict_mapping(void)
     UINT32 mapping_vpn;
     UINT32 mapping_bank;
     victim_lpn = cmt[cmt_hand].lpn;
-    gtd_index = victim_lpn / MAPPINGS_PER_PAGE;
+    gtd_index = victim_lpn / (MAPPINGS_PER_PAGE*NUM_BANKS);
     mapping_bank = get_num_bank(victim_lpn);
     mapping_vpn = gtd[mapping_bank][gtd_index];
 
@@ -608,34 +625,34 @@ static void evict_mapping(void)
 				mapping_vpn / PAGES_PER_BLK,
 				mapping_vpn % PAGES_PER_BLK,
 				TEMP_BUF_ADDR);
+		if(cmt[cmt_hand].vpn == read_dram_32(FTL_BUF(mapping_bank) + sizeof(UINT32 ) * ((victim_lpn/NUM_BANKS) % MAPPINGS_PER_PAGE)))
+		{
+			return;
+		}
 	    set_vcount(mapping_bank,
 	    		mapping_vpn / PAGES_PER_BLK,
 	    		get_vcount(mapping_bank, mapping_vpn / PAGES_PER_BLK) - 1);
-	    uart_printf("mapping valid2");
     }
     else
     {
     	uart_printf("mapping invalid");
-    	mem_set_dram(FTL_BUF(mapping_bank), 0, BYTES_PER_PAGE);
+    	mem_set_dram(TEMP_BUF_ADDR, 0, BYTES_PER_PAGE);
     }
 
     uart_printf("write offset %d", sizeof(UINT32 ) * ((victim_lpn/NUM_BANKS) % MAPPINGS_PER_PAGE));
     write_dram_32(FTL_BUF(mapping_bank) + sizeof(UINT32 ) * ((victim_lpn/NUM_BANKS) % MAPPINGS_PER_PAGE),
     		cmt[cmt_hand].vpn);
 
-    uart_printf("1");
-
     mapping_vpn = assign_new_write_vpn(mapping_bank);
     uart_printf("evicted to bank %d vpn 0x%x", mapping_bank, mapping_vpn);
-    uart_printf("2");
 
     gtd[mapping_bank][gtd_index] = mapping_vpn;
 
     nand_page_program(mapping_bank,
     		mapping_vpn / PAGES_PER_BLK,
     		mapping_vpn % PAGES_PER_BLK,
-    		FTL_BUF(mapping_bank));
-    uart_printf("3");
+    		TEMP_BUF_ADDR);
+    set_lpn(mapping_bank, mapping_vpn % PAGES_PER_BLK, INVALID);
 
     set_vcount(mapping_bank,
     		mapping_vpn / PAGES_PER_BLK,
@@ -721,10 +738,10 @@ static UINT32 assign_new_write_vpn(UINT32 const bank)
         // then, because of the flash controller limitation
         // (prohibit accessing a spare area (i.e. OOB)),
         // thus, we persistenly write a lpn list into last page of vblock.
-        mem_copy(TEMP_BUF_ADDR, g_misc_meta[bank].lpn_list_of_cur_vblock, sizeof(UINT32) * PAGES_PER_BLK);
+        mem_copy(FTL_BUF(bank), g_misc_meta[bank].lpn_list_of_cur_vblock, sizeof(UINT32) * PAGES_PER_BLK);
         // fix minor bug
         nand_page_ptprogram(bank, vblock, PAGES_PER_BLK - 1, 0,
-                            ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR), TEMP_BUF_ADDR);
+                            ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR), FTL_BUF(bank));
 
         mem_set_sram(g_misc_meta[bank].lpn_list_of_cur_vblock, 0x00000000, sizeof(UINT32) * PAGES_PER_BLK);
 
