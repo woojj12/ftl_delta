@@ -607,7 +607,7 @@ static void evict_mapping(void)
 		nand_page_read(mapping_bank,
 				mapping_vpn / PAGES_PER_BLK,
 				mapping_vpn % PAGES_PER_BLK,
-				TEMP_BUF_ADDR);
+				FTL_BUF(mapping_bank));
 	    set_vcount(mapping_bank,
 	    		mapping_vpn / PAGES_PER_BLK,
 	    		get_vcount(mapping_bank, mapping_vpn / PAGES_PER_BLK) - 1);
