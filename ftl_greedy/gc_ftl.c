@@ -618,6 +618,11 @@ static void evict_mapping(void)
 				mapping_vpn / PAGES_PER_BLK,
 				mapping_vpn % PAGES_PER_BLK,
 				FTL_BUF(mapping_bank));
+		if(cmt[cmt_hand].vpn == read_dram_32(FTL_BUF(mapping_bank) + sizeof(UINT32 ) * ((victim_lpn/NUM_BANKS) % MAPPINGS_PER_PAGE)))
+		{
+			//not modified
+			return;
+		}
     }
     else
     {
