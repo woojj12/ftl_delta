@@ -32,7 +32,7 @@
 //----------------------------------
 
 #define CMT_SIZE  		256
-#define MAPBLKS_PER_BANK	((GTD_SIZE_PER_BANK + PAGES_PER_BLK - 1) / PAGES_PER_BLK)
+#define MAPBLKS_PER_BANK	2//((GTD_SIZE_PER_BANK + PAGES_PER_BLK - 1) / PAGES_PER_BLK)
 #define MAPPINGS_PER_PAGE	(BYTES_PER_PAGE / sizeof(UINT32))
 
 #define VC_MAX              0xCDCD
@@ -85,6 +85,8 @@ CMT cmt[CMT_SIZE];
 UINT32 cmt_hand;
 
 UINT32 gtd[NUM_BANKS][GTD_SIZE_PER_BANK];
+
+UINT32 map_blk[NUM_BANKS][2];
 
 
 //----------------------------------
@@ -542,7 +544,6 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
 // get vpn from PAGE_MAP
 static UINT32 get_vpn(UINT32 const lpn)
 {
-	uart_printf("get vpn of lpn 0x%x", lpn);
     CHECK_LPAGE(lpn);
 //    return read_dram_32(PAGE_MAP_ADDR + lpn * sizeof(UINT32));
     UINT32 index;
@@ -573,14 +574,11 @@ static UINT32 get_vpn(UINT32 const lpn)
     if(mapping_vpn == INVALID)
     	return NULL;
 
-    uart_printf("get vpn at index %d", cmt_hand);
-
     nand_page_read(mapping_bank,
     		mapping_vpn / PAGES_PER_BLK,
     		mapping_vpn % PAGES_PER_BLK,
     		TEMP_BUF_ADDR);
     cmt[cmt_hand].lpn = lpn;
-    uart_printf("read offset %d", sizeof(UINT32) * offset_in_page);
     cmt[cmt_hand].vpn = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * offset_in_page);
     cmt[cmt_hand].sc = TRUE;
 
@@ -619,7 +617,7 @@ static void evict_mapping(void)
 		nand_page_read(mapping_bank,
 				mapping_vpn / PAGES_PER_BLK,
 				mapping_vpn % PAGES_PER_BLK,
-				TEMP_BUF_ADDR);
+				FTL_BUF(mapping_bank));
     }
     else
     {
@@ -699,10 +697,13 @@ static UINT32 assign_new_write_vpn(UINT32 const bank)
     write_vpn = get_cur_write_vpn(bank);
     vblock    = write_vpn / PAGES_PER_BLK;
 
+    uart_printf("assign new vpn at bank %d vblock 0x%x", bank, vblock);
+
     // NOTE: if next new write page's offset is
     // the last page offset of vblock (i.e. PAGES_PER_BLK - 1),
     if ((write_vpn % PAGES_PER_BLK) == (PAGES_PER_BLK - 2))
     {
+    	uart_printf("assign new vblock 0x%x at bank %d",vblock, bank);
         // then, because of the flash controller limitation
         // (prohibit accessing a spare area (i.e. OOB)),
         // thus, we persistenly write a lpn list into last page of vblock.
@@ -938,6 +939,7 @@ static void init_metadata_sram(void)
         // NOTE: vblock #0,1 don't use for user space
         write_dram_16(VCOUNT_ADDR + ((bank * VBLKS_PER_BANK) + 0) * sizeof(UINT16), VC_MAX);
         write_dram_16(VCOUNT_ADDR + ((bank * VBLKS_PER_BANK) + 1) * sizeof(UINT16), VC_MAX);
+        write_dram_16(VCOUNT_ADDR + ((bank * VBLKS_PER_BANK) + 2) * sizeof(UINT16), VC_MAX);
 
         //----------------------------------------
         // assign misc. block
@@ -959,11 +961,15 @@ static void init_metadata_sram(void)
             ASSERT(vblock < VBLKS_PER_BANK);
             if (is_bad_block(bank, vblock) == FALSE)
             {
+            	uart_printf("bank %d set map blk 0x%x",bank, vblock);
 //                set_mapblk_vpn(bank, mapblk_lbn, vblock * PAGES_PER_BLK);
+            	map_blk[bank][mapblk_lbn] = vblock;
                 write_dram_16(VCOUNT_ADDR + ((bank * VBLKS_PER_BANK) + vblock) * sizeof(UINT16), VC_MAX);
                 mapblk_lbn++;
             }
         }
+        set_new_map_write_vpn(bank, map_blk[bank][0] * PAGES_PER_BLK);
+        uart_printf("assigned map vpn at bank %d 0x%x", bank, map_blk[bank][0] * PAGES_PER_BLK);
         //----------------------------------------
         // assign free block for gc
         //----------------------------------------
@@ -1222,20 +1228,23 @@ static UINT32 assign_new_map_write_vpn(UINT32 const bank)
     UINT32 vblock;
     UINT32 new_vblock;
 
+
     write_vpn = get_cur_map_write_vpn(bank);
     vblock    = write_vpn / PAGES_PER_BLK;
+
+    uart_printf("assign new map vpn at bank %d vblock 0x%x",bank, vblock);
 
     // NOTE: if next new write page's offset is
     // the last page offset of vblock (i.e. PAGES_PER_BLK - 1),
     if ((write_vpn % PAGES_PER_BLK) == (PAGES_PER_BLK - 1))
     {
-        if(vblock == 2)
+        if(vblock == map_blk[bank][0])
         {
-        	new_vblock = 3;
+        	new_vblock = map_blk[bank][1];
         }
-        else if(vblock == 3)
+        else if(vblock == map_blk[bank][1])
         {
-        	new_vblock = 2;
+        	new_vblock = map_blk[bank][0];
         }
         else
         {
