@@ -32,7 +32,6 @@
 //----------------------------------
 
 #define CMT_SIZE  		256
-#define GTD_SIZE_PER_BANK	((((NUM_LPAGES + NUM_BANKS - 1)/NUM_BANKS) * sizeof(UINT32) + BYTES_PER_PAGE - 1) / BYTES_PER_PAGE)
 #define MAPBLKS_PER_BANK	((GTD_SIZE_PER_BANK + PAGES_PER_BLK - 1) / PAGES_PER_BLK)
 #define MAPPINGS_PER_PAGE	(BYTES_PER_PAGE / sizeof(UINT32))
 
@@ -148,6 +147,7 @@ static UINT32 assign_new_write_vpn(UINT32 const bank);
 static void load_pmt(UINT32 const bank);
 static UINT32 gc_get_vpn(UINT32 const lpn);
 static void gc_set_vpn(UINT32 const lpn, UINT32 const vpn);
+static void save_pmt(UINT32 bank);
 
 static UINT32 assign_new_map_write_vpn(UINT32 const bank);
 
@@ -564,11 +564,11 @@ static UINT32 get_vpn(UINT32 const lpn)
      */
     UINT32 gtd_index;// = lpn / (MAPPINGS_PER_PAGE*NUM_BANKS);
     UINT32 mapping_bank = get_num_bank(lpn);
-    UINT32 mapping_vpn = gtd[mapping_bank][gtd_index];
 
     UINT32 offset_in_bank = lpn / NUM_BANKS;
     UINT32 offset_in_page = offset_in_bank % MAPPINGS_PER_PAGE;
     gtd_index = offset_in_bank / MAPPINGS_PER_PAGE;
+    UINT32 mapping_vpn = gtd[mapping_bank][gtd_index];
 
     if(mapping_vpn == INVALID)
     	return NULL;
@@ -1154,7 +1154,6 @@ static void load_pmt(UINT32 const bank)
 	/*
 	 * flush cache-cmt to dram
 	 */
-	UINT32 vpn;
 	UINT32 offset;
 	for(i=0; i<CMT_SIZE; i++)
 	{
@@ -1170,16 +1169,14 @@ static void load_pmt(UINT32 const bank)
 
 static UINT32 gc_get_vpn(UINT32 const lpn)
 {
-	UINT32 bank = lpn % NUM_BANKS;
 	UINT32 offset = lpn / NUM_BANKS;
 	UINT32 gtd_index = offset / MAPPINGS_PER_PAGE;
 
 	return read_dram_32(GC_BUF(gtd_index) + sizeof(UINT32) * (offset % MAPPINGS_PER_PAGE));
 }
 
-static gc_set_vpn(UINT32 const lpn, UINT32 const vpn)
+static void gc_set_vpn(UINT32 const lpn, UINT32 const vpn)
 {
-	UINT32 bank = lpn % NUM_BANKS;
 	UINT32 offset = lpn / NUM_BANKS;
 	UINT32 gtd_index = offset / MAPPINGS_PER_PAGE;
 
