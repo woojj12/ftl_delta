@@ -607,7 +607,7 @@ static void evict_mapping(void)
 		nand_page_read(mapping_bank,
 				mapping_vpn / PAGES_PER_BLK,
 				mapping_vpn % PAGES_PER_BLK,
-				FTL_BUF(mapping_bank));
+				TEMP_BUF_ADDR);
 	    set_vcount(mapping_bank,
 	    		mapping_vpn / PAGES_PER_BLK,
 	    		get_vcount(mapping_bank, mapping_vpn / PAGES_PER_BLK) - 1);
@@ -721,10 +721,10 @@ static UINT32 assign_new_write_vpn(UINT32 const bank)
         // then, because of the flash controller limitation
         // (prohibit accessing a spare area (i.e. OOB)),
         // thus, we persistenly write a lpn list into last page of vblock.
-        mem_copy(FTL_BUF(bank), g_misc_meta[bank].lpn_list_of_cur_vblock, sizeof(UINT32) * PAGES_PER_BLK);
+        mem_copy(TEMP_BUF_ADDR, g_misc_meta[bank].lpn_list_of_cur_vblock, sizeof(UINT32) * PAGES_PER_BLK);
         // fix minor bug
         nand_page_ptprogram(bank, vblock, PAGES_PER_BLK - 1, 0,
-                            ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR), FTL_BUF(bank));
+                            ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR), TEMP_BUF_ADDR);
 
         mem_set_sram(g_misc_meta[bank].lpn_list_of_cur_vblock, 0x00000000, sizeof(UINT32) * PAGES_PER_BLK);
 
