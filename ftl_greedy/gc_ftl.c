@@ -436,6 +436,38 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
     }
 }
 
+//************************//
+//**** DFTL Algorithm ****//
+//************************//
+//Input: Request’s Logical Page Number (requestlpn), Request’s Size (requestsize)
+//Output: NULL
+//
+//while requestsize = 0 do
+//	if requestlpn miss in Cached Mapping Table then
+//		if Cached Mapping Table is full then
+//			/* Select entry for eviction using segmented LRU replacement algorithm */
+//			victimlpn ←select victim entry()
+//			if victimlast mod time = victimload time then
+//				/*victimtype : Translation or Data Block
+//				Translation Pagevictim : Physical
+//				Translation-Page Number containing victim entry */
+//				Translation Pagevictim ←consult GTD
+//				(victimlpn)
+//				victimtype ←Translation Block
+//				DFTL Service Request(victim)
+//			end
+//			erase entry(victimlpn)
+//		end
+//		Translation Pagerequest ←
+//		consult GTD(requestlpn)
+//		/* Load map entry of the request from flash into CachedMapping Table */
+//		load entry(Translation Pagerequest )
+//	end
+//	requesttype ←Data Block
+//	requestppn ←CMT lookup(requestlpn)
+//	DFTL Service Request(request)
+//	requestsize- -
+//end
 
 void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 {
@@ -448,6 +480,7 @@ void ftl_write(UINT32 const lba, UINT32 const num_sectors)
     sect_offset  = lba % SECTORS_PER_PAGE;
     remain_sects = num_sectors;
 
+    //while requestsize = 0 do
     while (remain_sects != 0)
     {
         if ((sect_offset + remain_sects) < SECTORS_PER_PAGE)
@@ -466,7 +499,6 @@ void ftl_write(UINT32 const lba, UINT32 const num_sectors)
         lpn++;
     }
 }
-
 
 static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const num_sectors)
 {
