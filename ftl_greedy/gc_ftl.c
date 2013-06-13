@@ -694,9 +694,9 @@ static UINT32 get_vpn(UINT32 const lpn)
     nand_page_read(mapping_bank,
     		mapping_vpn / PAGES_PER_BLK,
     		mapping_vpn % PAGES_PER_BLK,
-    		TEMP_BUF_ADDR);
+    		TEMP_BUF(mapping_bank));
     cmt[cmt_hand].lpn = lpn;
-    cmt[cmt_hand].vpn = read_dram_32(TEMP_BUF_ADDR + sizeof(UINT32) * offset_in_page);
+    cmt[cmt_hand].vpn = read_dram_32(TEMP_BUF(mapping_bank) + sizeof(UINT32) * offset_in_page);
     cmt[cmt_hand].sc = TRUE;
 
     UINT32 ret = SET_CLEAN(cmt[cmt_hand].vpn);
@@ -859,11 +859,12 @@ static UINT32 assign_new_write_vpn(UINT32 const bank)
         // then, because of the flash controller limitation
         // (prohibit accessing a spare area (i.e. OOB)),
         // thus, we persistenly write a lpn list into last page of vblock.
-        mem_copy(TEMP_BUF_ADDR, g_misc_meta[bank].lpn_list_of_cur_vblock, sizeof(UINT32) * PAGES_PER_BLK);
+        mem_copy(TEMP_BUF(bank), g_misc_meta[bank].lpn_list_of_cur_vblock, sizeof(UINT32) * PAGES_PER_BLK);
         // fix minor bug
         misc_w++;
         nand_page_ptprogram(bank, vblock, PAGES_PER_BLK - 1, 0,
-                            ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR), TEMP_BUF_ADDR);
+                            ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR),
+                            TEMP_BUF(bank));
 
         mem_set_sram(g_misc_meta[bank].lpn_list_of_cur_vblock, 0x00000000, sizeof(UINT32) * PAGES_PER_BLK);
 
@@ -1417,7 +1418,7 @@ static UINT32 assign_new_map_write_vpn(UINT32 const bank)
         }
         else
         {
-        	//uart_printf("assign new map write vpn some wrong");
+        	uart_printf("assign new map write vpn some wrong");
         	while(1);
         }
         /*
