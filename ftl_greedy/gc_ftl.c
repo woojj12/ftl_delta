@@ -417,7 +417,7 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
         vpn  = get_vpn(lpn);
         CHECK_VPAGE(vpn);
 
-        //**uart_printf("read_page lpn 0x%x, bank %d vpn 0x%x", lpn, bank, vpn);
+        uart_printf("read_page lpn 0x%x, bank %d vpn 0x%x", lpn, bank, vpn);
         if (vpn != NULL)
         {
         	data_read++;
@@ -544,6 +544,7 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
      * Parial Write라면 매핑을 읽어오고 페이지를 읽어와서 홀을 채움
      * Full Page Write라면 매핑을 읽어올 필요 없음
      */
+    new_vpn  = assign_new_write_vpn(bank);
     old_vpn  = get_vpn(lpn);
     CHECK_VPAGE (old_vpn);
     if (old_vpn != NULL)
@@ -607,8 +608,8 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
             }
             // invalid old page (decrease vcount)
         }
-        //**uart_printf("invalidation bank %d vblock 0x%x vcount to %d",
-//        		bank, vblock, get_vcount(bank, vblock) - 1);
+        uart_printf("invalidation bank %d vblock 0x%x vcount to %d",
+        		bank, vblock, get_vcount(bank, vblock) - 1);
         set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
     }
     else if (num_sectors != SECTORS_PER_PAGE)
@@ -624,13 +625,12 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
 		}
     }
 
-    new_vpn  = assign_new_write_vpn(bank);
     CHECK_VPAGE (new_vpn);
     vblock   = new_vpn / PAGES_PER_BLK;
     page_num = new_vpn % PAGES_PER_BLK;
 
-    //**uart_printf("write_page lpn 0x%x, bank %d old_vpn 0x%x new vpn 0x%x set vcount to %d",
-//    		lpn, bank, old_vpn, new_vpn,get_vcount(bank, vblock) + 1);
+    uart_printf("write_page lpn 0x%x, bank %d old_vpn 0x%x new vpn 0x%x set vcount to %d",
+    		lpn, bank, old_vpn, new_vpn,get_vcount(bank, vblock) + 1);
 
 //    if(!(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1)))
 //    	uart_printf("vcount %d", get_vcount(bank, vblock));
@@ -701,9 +701,9 @@ static UINT32 get_vpn(UINT32 const lpn)
     nand_page_read(mapping_bank,
     		mapping_vpn / PAGES_PER_BLK,
     		mapping_vpn % PAGES_PER_BLK,
-    		TEMP_BUF(mapping_bank));
+    		TRANS_BUF(mapping_bank));
     cmt[cmt_hand].lpn = lpn;
-    cmt[cmt_hand].vpn = read_dram_32(TEMP_BUF(mapping_bank) + sizeof(UINT32) * offset_in_page);
+    cmt[cmt_hand].vpn = read_dram_32(TRANS_BUF(mapping_bank) + sizeof(UINT32) * offset_in_page);
     cmt[cmt_hand].sc = TRUE;
 
     UINT32 ret = SET_CLEAN(cmt[cmt_hand].vpn);
@@ -758,11 +758,11 @@ static void evict_mapping(void)
 		nand_page_read(mapping_bank,
 				mapping_vpn / PAGES_PER_BLK,
 				mapping_vpn % PAGES_PER_BLK,
-				FTL_BUF(mapping_bank));
+				TRANS_BUF(mapping_bank));
     }
     else
     {
-    	mem_set_dram(FTL_BUF(mapping_bank), 0, BYTES_PER_PAGE);
+    	mem_set_dram(TRANS_BUF(mapping_bank), 0, BYTES_PER_PAGE);
     }
 
     int index;
@@ -774,7 +774,7 @@ static void evict_mapping(void)
 					((cmt[index].lpn / (MAPPINGS_PER_PAGE*NUM_BANKS)) == gtd_index))
 			{
 				cmt[index].vpn = SET_CLEAN(cmt[index].vpn);
-				write_dram_32(FTL_BUF(mapping_bank) + \
+				write_dram_32(TRANS_BUF(mapping_bank) + \
 						sizeof(UINT32 ) * ((cmt[index].lpn/NUM_BANKS) % MAPPINGS_PER_PAGE),
 						cmt[index].vpn);
 			}
@@ -952,8 +952,8 @@ static void garbage_collection(UINT32 const bank)
     gc_vblock = get_gc_vblock(bank);
     free_vpn  = gc_vblock * PAGES_PER_BLK;
 
-//    uart_printf("garbage_collection bank %d, vblock %d, vcount %d",
-//    		bank, vt_vblock, vcount);
+    uart_printf("garbage_collection bank %d, vblock %d, vcount %d",
+    		bank, vt_vblock, vcount);
 
     ASSERT(vt_vblock != gc_vblock);
     ASSERT(vt_vblock >= META_BLKS_PER_BANK && vt_vblock < VBLKS_PER_BANK);
@@ -961,24 +961,25 @@ static void garbage_collection(UINT32 const bank)
     ASSERT(get_vcount(bank, gc_vblock) == VC_MAX);
     ASSERT(!is_bad_block(bank, gc_vblock));
 
-    load_pmt(bank);
+    //?load_pmt(bank);
 
     // 1. load p2l list from last page offset of victim block (4B x PAGES_PER_BLK)
     // fix minor bug
     misc_w++;
     nand_page_ptread(bank, vt_vblock, PAGES_PER_BLK - 1, 0,
-                     ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR), FTL_BUF(bank), RETURN_WHEN_DONE);
+                     ((sizeof(UINT32) * PAGES_PER_BLK + BYTES_PER_SECTOR - 1 ) / BYTES_PER_SECTOR), GC_BUF(bank), RETURN_WHEN_DONE);
     mem_copy(g_misc_meta[bank].lpn_list_of_cur_vblock,
-    		FTL_BUF(bank), sizeof(UINT32) * PAGES_PER_BLK);
+    		GC_BUF(bank), sizeof(UINT32) * PAGES_PER_BLK);
     // 2. copy-back all valid pages to free space
     for (src_page = 0; src_page < (PAGES_PER_BLK - 1); src_page++)
     {
         // get lpn of victim block from a read lpn list
         src_lpn = get_lpn(bank, src_page);
-        CHECK_VPAGE(gc_get_vpn(src_lpn));
+//        CHECK_VPAGE(gc_get_vpn(src_lpn));
+        CHECK_VPAGE(get_vpn(src_lpn));
 
         // determine whether the page is valid or not
-        if (gc_get_vpn(src_lpn) !=
+        if (get_vpn(src_lpn) !=
             ((vt_vblock * PAGES_PER_BLK) + src_page))
         {
             // invalid page
@@ -998,7 +999,7 @@ static void garbage_collection(UINT32 const bank)
                            free_vpn % PAGES_PER_BLK);
         ASSERT((free_vpn / PAGES_PER_BLK) == gc_vblock);
         // update metadata
-        gc_set_vpn(src_lpn, free_vpn);
+        set_vpn(src_lpn, free_vpn);
         set_lpn(bank, (free_vpn % PAGES_PER_BLK), src_lpn);
 
         free_vpn++;
@@ -1027,7 +1028,7 @@ static void garbage_collection(UINT32 const bank)
     set_gc_vblock(bank, vt_vblock); // next free block (reserve for GC)
     dec_full_blk_cnt(bank); // decrease full block count
     /* uart_print("garbage_collection end"); */
-    save_pmt(bank);
+//    save_pmt(bank);
 }
 //-------------------------------------------------------------
 // Victim selection policy: Greedy
