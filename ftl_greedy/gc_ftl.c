@@ -417,7 +417,7 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
         vpn  = get_vpn(lpn);
         CHECK_VPAGE(vpn);
 
-        uart_printf("read_page lpn 0x%x, bank %d vpn 0x%x", lpn, bank, vpn);
+        //**uart_printf("read_page lpn 0x%x, bank %d vpn 0x%x", lpn, bank, vpn);
         if (vpn != NULL)
         {
         	data_read++;
@@ -546,14 +546,12 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
      */
     old_vpn  = get_vpn(lpn);
     CHECK_VPAGE (old_vpn);
-
-//    g_ftl_statistics[bank].page_wcount++;
-    if (num_sectors != SECTORS_PER_PAGE)
+    if (old_vpn != NULL)
     {
-        if (old_vpn != NULL)
+        vblock   = old_vpn / PAGES_PER_BLK;
+        page_num = old_vpn % PAGES_PER_BLK;
+        if (num_sectors != SECTORS_PER_PAGE)
         {
-            vblock   = old_vpn / PAGES_PER_BLK;
-            page_num = old_vpn % PAGES_PER_BLK;
             if ((num_sectors <= 8) && (page_offset != 0))
             {
                 // one page async read
@@ -607,40 +605,35 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
                                      RETURN_WHEN_DONE);
                 }
             }
-            set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
             // invalid old page (decrease vcount)
         }
-        else
-        {
-    		if(page_offset != 0)
-    			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id),
-    					0,
-    					page_offset * BYTES_PER_SECTOR);
-    		if((page_offset + num_sectors) < SECTORS_PER_PAGE)
-    		{
-    			UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
-    			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base, 0, BYTES_PER_PAGE - rhole_base);
-    		}
-        }
+        //**uart_printf("invalidation bank %d vblock 0x%x vcount to %d",
+//        		bank, vblock, get_vcount(bank, vblock) - 1);
+        set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
     }
-    else
+    else if (num_sectors != SECTORS_PER_PAGE)
     {
-    	if(old_vpn != NULL)
-    	{
-            vblock   = old_vpn / PAGES_PER_BLK;
-            page_num = old_vpn % PAGES_PER_BLK;
-            set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
-    	}
+		if(page_offset != 0)
+			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id),
+					0,
+					page_offset * BYTES_PER_SECTOR);
+		if((page_offset + num_sectors) < SECTORS_PER_PAGE)
+		{
+			UINT32 const rhole_base = (page_offset + num_sectors) * BYTES_PER_SECTOR;
+			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base, 0, BYTES_PER_PAGE - rhole_base);
+		}
     }
 
     new_vpn  = assign_new_write_vpn(bank);
     CHECK_VPAGE (new_vpn);
-    uart_printf("write_page lpn 0x%x, bank %d old_vpn 0x%x new vpn 0x%x", lpn, bank, old_vpn, new_vpn);
-
     vblock   = new_vpn / PAGES_PER_BLK;
     page_num = new_vpn % PAGES_PER_BLK;
-    if(!(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1)))
-    	uart_printf("vcount %d", get_vcount(bank, vblock));
+
+    //**uart_printf("write_page lpn 0x%x, bank %d old_vpn 0x%x new vpn 0x%x set vcount to %d",
+//    		lpn, bank, old_vpn, new_vpn,get_vcount(bank, vblock) + 1);
+
+//    if(!(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1)))
+//    	uart_printf("vcount %d", get_vcount(bank, vblock));
     ASSERT(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1));
 
     // write new data (make sure that the new data is ready in the write buffer frame)
@@ -834,13 +827,17 @@ static void set_vpn(UINT32 const lpn, UINT32 const vpn)
 // get valid page count of vblock
 static UINT32 get_vcount(UINT32 const bank, UINT32 const vblock)
 {
+	//************
+	if(vblock == 0)
+		return NULL;
+
     UINT32 vcount;
 
     ASSERT(bank < NUM_BANKS);
-    if(!((vblock >= META_BLKS_PER_BANK) && (vblock < VBLKS_PER_BANK)))
-    {
-    	uart_printf("bank %d vblock 0x%x", bank, vblock);
-    }
+//    if(!((vblock >= META_BLKS_PER_BANK) && (vblock < VBLKS_PER_BANK)))
+//    {
+//    	uart_printf("bank %d vblock 0x%x", bank, vblock);
+//    }
     ASSERT((vblock >= META_BLKS_PER_BANK) && (vblock < VBLKS_PER_BANK));
 
     vcount = read_dram_16(VCOUNT_ADDR + (((bank * VBLKS_PER_BANK) + vblock) * sizeof(UINT16)));
@@ -955,8 +952,8 @@ static void garbage_collection(UINT32 const bank)
     gc_vblock = get_gc_vblock(bank);
     free_vpn  = gc_vblock * PAGES_PER_BLK;
 
-    uart_printf("garbage_collection bank %d, vblock %d, vcount %d",
-    		bank, vt_vblock, vcount);
+//    uart_printf("garbage_collection bank %d, vblock %d, vcount %d",
+//    		bank, vt_vblock, vcount);
 
     ASSERT(vt_vblock != gc_vblock);
     ASSERT(vt_vblock >= META_BLKS_PER_BANK && vt_vblock < VBLKS_PER_BANK);
@@ -987,8 +984,8 @@ static void garbage_collection(UINT32 const bank)
             // invalid page
             continue;
         }
-        uart_printf("valid page %d, free_vpn 0x%x, offset %d",
-        		src_page, free_vpn, free_vpn % PAGES_PER_BLK);
+//        uart_printf("lpn 0x%x src_vpn 0x%x valid page %d, free_vpn 0x%x, offset %d",
+//        		src_lpn, gc_get_vpn(src_lpn), src_page, free_vpn, free_vpn % PAGES_PER_BLK);
         ASSERT(get_lpn(bank, src_page) != INVALID);
         CHECK_LPAGE(src_lpn);
         // if the page is valid,
@@ -1016,15 +1013,15 @@ static void garbage_collection(UINT32 const bank)
     erase++;
     nand_block_erase(bank, vt_vblock);
     ASSERT((free_vpn % PAGES_PER_BLK) < (PAGES_PER_BLK - 2));
-    if(free_vpn % PAGES_PER_BLK != vcount)
-    	uart_printf("page_offset %d vcount %d", free_vpn%PAGES_PER_BLK, vcount);
+//    if(free_vpn % PAGES_PER_BLK != vcount)
+//    	uart_printf("page_offset %d vcount %d", free_vpn%PAGES_PER_BLK, vcount);
     ASSERT((free_vpn % PAGES_PER_BLK == vcount));
 
 /*     uart_printf("gc page count : %d", vcount); */
 
     // 4. update metadata
+    //set_vcount(bank, vt_vblock, VC_MAX);
     set_vcount(bank, vt_vblock, VC_MAX);
-//    set_vcount(bank, vt_vblock, 0);
     set_vcount(bank, gc_vblock, vcount);
     set_new_write_vpn(bank, free_vpn); // set a free page for new write
     set_gc_vblock(bank, vt_vblock); // next free block (reserve for GC)
