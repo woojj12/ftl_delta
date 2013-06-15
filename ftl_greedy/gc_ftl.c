@@ -1,29 +1,12 @@
-// Copyright 2011 INDILINX Co., Ltd.
-//
-// This file is part of Jasmine.
-//
-// Jasmine is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// Jasmine is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Jasmine. See the file COPYING.
-// If not, see <http://www.gnu.org/licenses/>.
-//
-// GreedyFTL source file
-//
-// Author; Sang-Phil Lim (SKKU VLDB Lab.)
-//
-// - support POR
-//  + fixed metadata area (Misc. block/Map block)
-//  + logging entire FTL metadata when each ATA commands(idle/ready/standby) was issued
-//
+/*
+ * D-FTL
+ * Jungjae Woo, Jinwon Kim
+ * Sungkyunkwan University
+ *
+ * based on GreedyFTL source code by Sang-Phil Lim (SKKU VLDB Lab.)
+ *
+ * 2013. 6. 15.
+ */
 
 #include "jasmine.h"
 
@@ -56,8 +39,6 @@ typedef struct _misc_metadata
 {
 	UINT32 cur_write_vpn; // physical page for new write
 	UINT32 cur_map_write_vpn; // physical page for new write
-	//    UINT32 cur_miscblk_vpn; // current write vpn for logging the misc. metadata
-	//    UINT32 cur_mapblk_vpn[MAPBLKS_PER_BANK]; // current write vpn for logging the age mapping info.
 	UINT32 gc_vblock; // vblock number for garbage collection
 	UINT32 free_blk_cnt; // total number of free block count
 	UINT32 lpn_list_of_cur_vblock[PAGES_PER_BLK]; // logging lpn list of current write vblock for GC
@@ -67,7 +48,6 @@ typedef struct _misc_metadata
 // FTL metadata (maintain in SRAM)
 //----------------------------------
 static misc_metadata  g_misc_meta[NUM_BANKS];
-//static ftl_statistics g_ftl_statistics[NUM_BANKS];
 static UINT32		  g_bad_blk_count[NUM_BANKS];
 
 // SATA read/write buffer pointer id
@@ -133,12 +113,8 @@ UINT32 map_blk[NUM_BANKS][2];
 #define set_lpn(bank, page_num, lpn)  (g_misc_meta[bank].lpn_list_of_cur_vblock[page_num] = lpn)
 #define get_lpn(bank, page_num)       (g_misc_meta[bank].lpn_list_of_cur_vblock[page_num])
 #define get_miscblk_vpn(bank)         (g_misc_meta[bank].cur_miscblk_vpn)
-//#define set_miscblk_vpn(bank, vpn)    (g_misc_meta[bank].cur_miscblk_vpn = vpn)
-#define get_mapblk_vpn(bank, mapblk_lbn)      (g_misc_meta[bank].cur_mapblk_vpn[mapblk_lbn])
-//#define set_mapblk_vpn(bank, mapblk_lbn, vpn) (g_misc_meta[bank].cur_mapblk_vpn[mapblk_lbn] = vpn)
 #define CHECK_LPAGE(lpn)              ASSERT((lpn) < NUM_LPAGES)
 #define CHECK_VPAGE(vpn)              ASSERT((vpn) < (VBLKS_PER_BANK * PAGES_PER_BLK))
-
 #define get_cur_map_write_vpn(bank)       (g_misc_meta[bank].cur_map_write_vpn)
 #define set_new_map_write_vpn(bank, vpn)  (g_misc_meta[bank].cur_map_write_vpn = vpn)
 
@@ -149,26 +125,16 @@ static void   format(void);
 static void   write_format_mark(void);
 static void   sanity_check(void);
 static void   init_metadata_sram(void);
-static void   load_metadata(void);
 static void   write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const num_sectors);
 static void   set_vpn(UINT32 const lpn, UINT32 const vpn);
 static void   garbage_collection(UINT32 const bank);
 static void   set_vcount(UINT32 const bank, UINT32 const vblock, UINT32 const vcount);
 static BOOL32 is_bad_block(UINT32 const bank, UINT32 const vblock);
-static BOOL32 check_format_mark(void);
 static UINT32 get_vcount(UINT32 const bank, UINT32 const vblock);
 static UINT32 get_vpn(UINT32 const lpn);
 static UINT32 get_vt_vblock(UINT32 const bank);
 static UINT32 assign_new_write_vpn(UINT32 const bank);
-
-//////////////////
-static void load_pmt(UINT32 const bank);
-static UINT32 gc_get_vpn(UINT32 const lpn);
-static void gc_set_vpn(UINT32 const lpn, UINT32 const vpn);
-static void save_pmt(UINT32 bank);
-
 static UINT32 assign_new_map_write_vpn(UINT32 const bank);
-
 static void evict_mapping(void);
 static UINT32 assign_new_map_write_vpn(UINT32 const bank);
 
@@ -349,7 +315,6 @@ void ftl_open(void)
 UINT32 ftl_r;
 UINT32 ftl_w;
 UINT32 write_p;
-
 UINT32 data_prog, data_read;
 UINT32 set_v, get_v;
 UINT32 cmt_w_hit, cmt_r_hit;
@@ -357,7 +322,6 @@ UINT32 map_prog, map_read;
 UINT32 gc;
 UINT32 get_v_w = 0;
 UINT32 get_v_w_hit = 0;
-
 UINT32 gc_prog;
 UINT32 misc_w;
 UINT32 erase;
@@ -366,11 +330,6 @@ UINT32 map_chg_prog;
 
 void ftl_flush(void)
 {
-	/* ptimer_start(); */
-	//    logging_pmap_table();
-	////    logging_misc_metadata();
-	//	return;
-	/* ptimer_stop_and_uart_print(); */
 	uart_printf("ftl_read	%d", ftl_r);
 	uart_printf("ftl_write	%d", ftl_w);
 	uart_printf("write_page	%d", write_p);
@@ -420,7 +379,6 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 		vpn  = get_vpn(lpn);
 		CHECK_VPAGE(vpn);
 
-//		uart_printf("read_page lpn 0x%x, bank %d vpn 0x%x", lpn, bank, vpn);
 		if (vpn != NULL)
 		{
 			data_read++;
@@ -430,7 +388,6 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 					sect_offset,
 					num_sectors_to_read);
 		}
-		// The host is requesting to read a logical page that has never been written to.
 		else
 		{
 			UINT32 next_read_buf_id = (g_ftl_read_buf_id + 1) % NUM_RD_BUFFERS;
@@ -464,7 +421,7 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 //************************//
 //**** DFTL Algorithm ****//
 //************************//
-//Input: Request’s Logical Page Number (requestlpn), Request’s Size (requestsize)
+//Input: Request’s Logical Page Number (request lpn), Request’s Size (request size)
 //Output: NULL
 //
 //while requestsize = 0 do
@@ -507,7 +464,6 @@ void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 	sect_offset  = lba % SECTORS_PER_PAGE;
 	remain_sects = num_sectors;
 
-	//while requestsize = 0 do
 	while (remain_sects != 0)
 	{
 		if ((sect_offset + remain_sects) < SECTORS_PER_PAGE)
@@ -518,7 +474,6 @@ void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 		{
 			num_sectors_to_write = SECTORS_PER_PAGE - sect_offset;
 		}
-		// single page write individually
 		write_page(lpn, sect_offset, num_sectors_to_write);
 
 		sect_offset   = 0;
@@ -543,10 +498,6 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
 	page_offset = sect_offset;
 	column_cnt  = num_sectors;
 
-	/*
-	 * Parial Write라면 매핑을 읽어오고 페이지를 읽어와서 홀을 채움
-	 * Full Page Write라면 매핑을 읽어올 필요 없음
-	 */
 	new_vpn  = assign_new_write_vpn(bank);
 	old_vpn  = get_vpn(lpn);
 	CHECK_VPAGE (old_vpn);
@@ -609,10 +560,7 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
 							RETURN_WHEN_DONE);
 				}
 			}
-			// invalid old page (decrease vcount)
 		}
-//		uart_printf("invalidation bank %d vblock 0x%x vcount to %d",
-//				bank, vblock, get_vcount(bank, vblock) - 1);
 		set_vcount(bank, vblock, get_vcount(bank, vblock) - 1);
 	}
 	else if (num_sectors != SECTORS_PER_PAGE)
@@ -632,11 +580,6 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
 	vblock   = new_vpn / PAGES_PER_BLK;
 	page_num = new_vpn % PAGES_PER_BLK;
 
-//	uart_printf("write_page lpn 0x%x, bank %d old_vpn 0x%x old vblock %d new vpn 0x%x new vblock %d set vcount to %d",
-//			lpn, bank, old_vpn, old_vpn / PAGES_PER_BLK, new_vpn, vblock, get_vcount(bank, vblock) + 1);
-
-	//    if(!(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1)))
-	//    	uart_printf("vcount %d", get_vcount(bank, vblock));
 	ASSERT(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1));
 
 	// write new data (make sure that the new data is ready in the write buffer frame)
@@ -663,7 +606,6 @@ static UINT32 get_vpn(UINT32 const lpn)
 		get_v++;
 	}
 	CHECK_LPAGE(lpn);
-	//    return read_dram_32(PAGE_MAP_ADDR + lpn * sizeof(UINT32));
 	UINT32 index;
 	for(index = 0; index < CMT_SIZE; index++)
 	{
@@ -682,14 +624,11 @@ static UINT32 get_vpn(UINT32 const lpn)
 	 * not in CMT
 	 * now select an victim
 	 */
+	evict_mapping();
 	/*
 	 * now, cmt[cmt_hand] is a victim
 	 */
-	evict_mapping();
-	/*
-	 * now get the mapping info
-	 */
-	UINT32 gtd_index;// = lpn / (MAPPINGS_PER_PAGE*NUM_BANKS);
+	UINT32 gtd_index;
 	UINT32 mapping_bank = get_num_bank(lpn);
 
 	UINT32 offset_in_bank = lpn / NUM_BANKS;
@@ -743,16 +682,8 @@ static void evict_mapping(void)
 	 * 같이 업데이트 해 준다
 	 * clean : 그냥 버린다
 	 */
-
-//	if(IS_GC)
-//	{
-//		uart_printf("gc evict lpn 0x%x, cmt_hand %d, vpn 0x%x",
-//				cmt[cmt_hand].lpn, cmt_hand, cmt[cmt_hand].vpn);
-//	}
-
 	if(IS_CLEAN(victim_vpn))
 	{
-		//Clean
 		return;
 	}
 
@@ -786,11 +717,6 @@ static void evict_mapping(void)
 					((cmt[index].lpn / (MAPPINGS_PER_PAGE*NUM_BANKS)) == gtd_index))
 			{
 				cmt[index].vpn = SET_CLEAN(cmt[index].vpn);
-//				if(IS_GC)
-//				{
-//					uart_printf("gc evicted index %d lpn 0x%x bank %d vpn 0x%x",
-//							index, cmt[index].lpn, mapping_bank, cmt[index].vpn);
-//				}
 				write_dram_32(TRANS_BUF(mapping_bank) + \
 						sizeof(UINT32 ) * ((cmt[index].lpn/NUM_BANKS) % MAPPINGS_PER_PAGE),
 						cmt[index].vpn);
@@ -816,7 +742,6 @@ static void set_vpn(UINT32 const lpn, UINT32 const vpn)
 	CHECK_LPAGE(lpn);
 	ASSERT(vpn >= (META_BLKS_PER_BANK * PAGES_PER_BLK) && vpn < (VBLKS_PER_BANK * PAGES_PER_BLK));
 
-	//    write_dram_32(PAGE_MAP_ADDR + lpn * sizeof(UINT32), vpn);
 	UINT32 index;
 	for(index = 0; index < CMT_SIZE; index++)
 	{
@@ -851,10 +776,6 @@ static UINT32 get_vcount(UINT32 const bank, UINT32 const vblock)
 	UINT32 vcount;
 
 	ASSERT(bank < NUM_BANKS);
-	//    if(!((vblock >= META_BLKS_PER_BANK) && (vblock < VBLKS_PER_BANK)))
-	//    {
-	//    	uart_printf("bank %d vblock 0x%x", bank, vblock);
-	//    }
 	ASSERT((vblock >= META_BLKS_PER_BANK) && (vblock < VBLKS_PER_BANK));
 
 	vcount = read_dram_16(VCOUNT_ADDR + (((bank * VBLKS_PER_BANK) + vblock) * sizeof(UINT16)));
@@ -881,13 +802,10 @@ static UINT32 assign_new_write_vpn(UINT32 const bank)
 	write_vpn = get_cur_write_vpn(bank);
 	vblock    = write_vpn / PAGES_PER_BLK;
 
-	//uart_printf("assign new vpn at bank %d vblock 0x%x", bank, vblock);
-
 	// NOTE: if next new write page's offset is
 	// the last page offset of vblock (i.e. PAGES_PER_BLK - 1),
 	if ((write_vpn % PAGES_PER_BLK) == (PAGES_PER_BLK - 2))
 	{
-		//uart_printf("assign new vblock 0x%x at bank %d",vblock, bank);
 		// then, because of the flash controller limitation
 		// (prohibit accessing a spare area (i.e. OOB)),
 		// thus, we persistenly write a lpn list into last page of vblock.
@@ -903,8 +821,6 @@ static UINT32 assign_new_write_vpn(UINT32 const bank)
 		inc_full_blk_cnt(bank);
 
 		// do garbage collection if necessary
-//		if(g_misc_meta[bank].free_blk_cnt < 3)
-//			uart_printf("bank %d free blk cnt %d", bank, g_misc_meta[bank].free_blk_cnt);
 		if (is_full_all_blks(bank))
 		{
 			GC:
@@ -966,23 +882,16 @@ static void garbage_collection(UINT32 const bank)
 	UINT32 src_page;
 	UINT32 gc_vblock;
 
-	//    g_ftl_statistics[bank].gc_cnt++;
-
 	vt_vblock = get_vt_vblock(bank);   // get victim block
 	vcount    = get_vcount(bank, vt_vblock);
 	gc_vblock = get_gc_vblock(bank);
 	free_vpn  = gc_vblock * PAGES_PER_BLK;
-
-//	uart_printf("garbage_collection bank %d, vblock %d, vcount %d, to vblock %d",
-//			bank, vt_vblock, vcount, gc_vblock);
 
 	ASSERT(vt_vblock != gc_vblock);
 	ASSERT(vt_vblock >= META_BLKS_PER_BANK && vt_vblock < VBLKS_PER_BANK);
 	ASSERT(vcount < (PAGES_PER_BLK - 1));
 	ASSERT(get_vcount(bank, gc_vblock) == VC_MAX);
 	ASSERT(!is_bad_block(bank, gc_vblock));
-
-	//?load_pmt(bank);
 
 	// 1. load p2l list from last page offset of victim block (4B x PAGES_PER_BLK)
 	// fix minor bug
@@ -996,7 +905,6 @@ static void garbage_collection(UINT32 const bank)
 	{
 		// get lpn of victim block from a read lpn list
 		src_lpn = get_lpn(bank, src_page);
-		//        CHECK_VPAGE(gc_get_vpn(src_lpn));
 		CHECK_VPAGE(get_vpn(src_lpn));
 
 		// determine whether the page is valid or not
@@ -1006,8 +914,6 @@ static void garbage_collection(UINT32 const bank)
 			// invalid page
 			continue;
 		}
-//		uart_printf("lpn 0x%x src_vpn 0x%x valid page %d, free_vpn 0x%x, offset %d",
-//				src_lpn, get_vpn(src_lpn), src_page, free_vpn, free_vpn % PAGES_PER_BLK);
 		ASSERT(get_lpn(bank, src_page) != INVALID);
 		CHECK_LPAGE(src_lpn);
 		// if the page is valid,
@@ -1035,11 +941,7 @@ static void garbage_collection(UINT32 const bank)
 	erase++;
 	nand_block_erase(bank, vt_vblock);
 	ASSERT((free_vpn % PAGES_PER_BLK) < (PAGES_PER_BLK - 2));
-	//    if(free_vpn % PAGES_PER_BLK != vcount)
-	//    	uart_printf("page_offset %d vcount %d", free_vpn%PAGES_PER_BLK, vcount);
 	ASSERT((free_vpn % PAGES_PER_BLK == vcount));
-
-	/*     uart_printf("gc page count : %d", vcount); */
 
 	// 4. update metadata
 	//set_vcount(bank, vt_vblock, VC_MAX);
@@ -1048,9 +950,6 @@ static void garbage_collection(UINT32 const bank)
 	set_new_write_vpn(bank, free_vpn); // set a free page for new write
 	set_gc_vblock(bank, vt_vblock); // next free block (reserve for GC)
 	dec_full_blk_cnt(bank); // decrease full block count
-//	uart_printf("after gc vcount %d", get_vcount(bank, gc_vblock));
-	/* uart_print("garbage_collection end"); */
-	//    save_pmt(bank);
 	CLEAR_GC;
 }
 //-------------------------------------------------------------
@@ -1155,15 +1054,7 @@ static void init_metadata_sram(void)
 		write_dram_16(VCOUNT_ADDR + ((bank * VBLKS_PER_BANK) + 1) * sizeof(UINT16), VC_MAX);
 		write_dram_16(VCOUNT_ADDR + ((bank * VBLKS_PER_BANK) + 2) * sizeof(UINT16), VC_MAX);
 
-		//----------------------------------------
-		// assign misc. block
-		//----------------------------------------
-		// assumption: vblock #1 = fixed location.
-		// Thus if vblock #1 is a bad block, it should be allocate another block.
-		//        set_miscblk_vpn(bank, MISCBLK_VBN * PAGES_PER_BLK - 1);
-		ASSERT(is_bad_block(bank, MISCBLK_VBN) == FALSE);
-
-		vblock = 0;//MISCBLK_VBN;
+		vblock = 0;
 
 		//----------------------------------------
 		// assign map block
@@ -1175,8 +1066,6 @@ static void init_metadata_sram(void)
 			ASSERT(vblock < VBLKS_PER_BANK);
 			if (is_bad_block(bank, vblock) == FALSE)
 			{
-				//uart_printf("bank %d set map blk 0x%x",bank, vblock);
-				//                set_mapblk_vpn(bank, mapblk_lbn, vblock * PAGES_PER_BLK);
 				map_blk[bank][mapblk_lbn] = vblock;
 				write_dram_16(VCOUNT_ADDR + ((bank * VBLKS_PER_BANK) + vblock) * sizeof(UINT16),
 						VC_MAX);
@@ -1184,7 +1073,6 @@ static void init_metadata_sram(void)
 			}
 		}
 		set_new_map_write_vpn(bank, map_blk[bank][0] * PAGES_PER_BLK);
-		//uart_printf("assigned map vpn at bank %d 0x%x", bank, map_blk[bank][0] * PAGES_PER_BLK);
 		//----------------------------------------
 		// assign free block for gc
 		//----------------------------------------
@@ -1210,103 +1098,6 @@ static void init_metadata_sram(void)
 			ASSERT(vblock < VBLKS_PER_BANK);
 		}while(is_bad_block(bank, vblock) == TRUE);
 	}
-}
-// load flushed FTL metadta
-static void load_metadata(void)
-{
-	return;
-}
-static void write_format_mark(void)
-{
-	//	// This function writes a format mark to a page at (bank #0, block #0).
-	//
-	//	#ifdef __GNUC__
-	//	extern UINT32 size_of_firmware_image;
-	//	UINT32 firmware_image_pages = (((UINT32) (&size_of_firmware_image)) + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	//	#else
-	//	extern UINT32 Image$$ER_CODE$$RO$$Length;
-	//	extern UINT32 Image$$ER_RW$$RW$$Length;
-	//	UINT32 firmware_image_bytes = ((UINT32) &Image$$ER_CODE$$RO$$Length) + ((UINT32) &Image$$ER_RW$$RW$$Length);
-	//	UINT32 firmware_image_pages = (firmware_image_bytes + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	//	#endif
-	//
-	//	UINT32 format_mark_page_offset = FW_PAGE_OFFSET + firmware_image_pages;
-	//
-	//	mem_set_dram(FTL_BUF_ADDR, 0, BYTES_PER_SECTOR);
-	//
-	//	SETREG(FCP_CMD, FC_COL_ROW_IN_PROG);
-	//	SETREG(FCP_BANK, REAL_BANK(0));
-	//	SETREG(FCP_OPTION, FO_E | FO_B_W_DRDY);
-	//	SETREG(FCP_DMA_ADDR, FTL_BUF_ADDR); 	// DRAM -> flash
-	//	SETREG(FCP_DMA_CNT, BYTES_PER_SECTOR);
-	//	SETREG(FCP_COL, 0);
-	//	SETREG(FCP_ROW_L(0), format_mark_page_offset);
-	//	SETREG(FCP_ROW_H(0), format_mark_page_offset);
-	//
-	//	// At this point, we do not have to check Waiting Room status before issuing a command,
-	//	// because we have waited for all the banks to become idle before returning from format().
-	//	SETREG(FCP_ISSUE, NULL);
-	//
-	//	// wait for the FC_COL_ROW_IN_PROG command to be accepted by bank #0
-	//	while ((GETREG(WR_STAT) & 0x00000001) != 0);
-	//
-	//	// wait until bank #0 finishes the write operation
-	//	while (BSP_FSM(0) != BANK_IDLE);
-	return;
-}
-static BOOL32 check_format_mark(void)
-{
-	//	// This function reads a flash page from (bank #0, block #0) in order to check whether the SSD is formatted or not.
-	//
-	//	#ifdef __GNUC__
-	//	extern UINT32 size_of_firmware_image;
-	//	UINT32 firmware_image_pages = (((UINT32) (&size_of_firmware_image)) + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	//	#else
-	//	extern UINT32 Image$$ER_CODE$$RO$$Length;
-	//	extern UINT32 Image$$ER_RW$$RW$$Length;
-	//	UINT32 firmware_image_bytes = ((UINT32) &Image$$ER_CODE$$RO$$Length) + ((UINT32) &Image$$ER_RW$$RW$$Length);
-	//	UINT32 firmware_image_pages = (firmware_image_bytes + BYTES_PER_FW_PAGE - 1) / BYTES_PER_FW_PAGE;
-	//	#endif
-	//
-	//	UINT32 format_mark_page_offset = FW_PAGE_OFFSET + firmware_image_pages;
-	//	UINT32 temp;
-	//
-	//	flash_clear_irq();	// clear any flash interrupt flags that might have been set
-	//
-	//	SETREG(FCP_CMD, FC_COL_ROW_READ_OUT);
-	//	SETREG(FCP_BANK, REAL_BANK(0));
-	//	SETREG(FCP_OPTION, FO_E);
-	//	SETREG(FCP_DMA_ADDR, FTL_BUF_ADDR); 	// flash -> DRAM
-	//	SETREG(FCP_DMA_CNT, BYTES_PER_SECTOR);
-	//	SETREG(FCP_COL, 0);
-	//	SETREG(FCP_ROW_L(0), format_mark_page_offset);
-	//	SETREG(FCP_ROW_H(0), format_mark_page_offset);
-	//
-	//	// At this point, we do not have to check Waiting Room status before issuing a command,
-	//	// because scan list loading has been completed just before this function is called.
-	//	SETREG(FCP_ISSUE, NULL);
-	//
-	//	// wait for the FC_COL_ROW_READ_OUT command to be accepted by bank #0
-	//	while ((GETREG(WR_STAT) & 0x00000001) != 0);
-	//
-	//	// wait until bank #0 finishes the read operation
-	//	while (BSP_FSM(0) != BANK_IDLE);
-	//
-	//	// Now that the read operation is complete, we can check interrupt flags.
-	//	temp = BSP_INTR(0) & FIRQ_ALL_FF;
-	//
-	//	// clear interrupt flags
-	//	CLR_BSP_INTR(0, 0xFF);
-	//
-	//	if (temp != 0)
-	//	{
-	//		return FALSE;	// the page contains all-0xFF (the format mark does not exist.)
-	//	}
-	//	else
-	//	{
-	//		return TRUE;	// the page contains something other than 0xFF (it must be the format mark)
-	//	}
-	return FALSE;
 }
 
 // BSP interrupt service routine
@@ -1349,96 +1140,6 @@ void ftl_isr(void)
 	}
 }
 
-static void load_pmt(UINT32 const bank)
-{
-	UINT32 i;
-	UINT32 mapping_vpn;
-	/*
-	 * for gc,
-	 * laod page mappings to dram
-	 * so set_vpn, get_vpn can skip nand program while gc
-	 */
-	for(i=0; i<GTD_SIZE_PER_BANK; i++)
-	{
-		mapping_vpn = gtd[bank][i];
-		if(mapping_vpn == INVALID)
-		{
-			mem_set_dram(GC_BUF(i), 0, BYTES_PER_PAGE);
-		}
-		else
-		{
-			load_pm++;
-			nand_page_read(bank,
-					mapping_vpn / PAGES_PER_BLK,
-					mapping_vpn % PAGES_PER_BLK,
-					GC_BUF(i));
-		}
-	}
-	/*
-	 * flush cache-cmt to dram
-	 */
-	UINT32 offset;
-	for(i=0; i<CMT_SIZE; i++)
-	{
-		if(cmt[i].lpn == INVALID)
-			break;
-		else if(cmt[i].lpn % 8 == bank)
-		{
-			offset = cmt[i].lpn / NUM_BANKS;
-			write_dram_32(GC_BUF(offset / MAPPINGS_PER_PAGE) + sizeof(UINT32) * (offset % MAPPINGS_PER_PAGE),
-					SET_CLEAN(cmt[i].vpn));
-		}
-	}
-}
-
-static UINT32 gc_get_vpn(UINT32 const lpn)
-{
-	UINT32 offset = lpn / NUM_BANKS;
-	UINT32 gtd_index = offset / MAPPINGS_PER_PAGE;
-
-	return read_dram_32(GC_BUF(gtd_index) + sizeof(UINT32) * (offset % MAPPINGS_PER_PAGE));
-}
-
-static void gc_set_vpn(UINT32 const lpn, UINT32 const vpn)
-{
-	UINT32 offset = lpn / NUM_BANKS;
-	UINT32 gtd_index = offset / MAPPINGS_PER_PAGE;
-
-	write_dram_32(GC_BUF(gtd_index) + sizeof(UINT32) * (offset % MAPPINGS_PER_PAGE), vpn);
-}
-
-static void save_pmt(UINT32 bank)
-{
-	UINT32 i;
-	UINT32 offset;
-	UINT32 new_vpn;
-
-	/*
-	 * cache에 업데이트
-	 */
-	for(i=0; i<CMT_SIZE; i++)
-	{
-		if(cmt[i].lpn == INVALID)
-			break;
-		else if(cmt[i].lpn % 8 == bank)
-		{
-			offset = cmt[i].lpn / NUM_BANKS;
-			cmt[i].vpn = read_dram_32(GC_BUF(offset / MAPPINGS_PER_PAGE) + sizeof(UINT32) * (offset % MAPPINGS_PER_PAGE));
-		}
-	}
-
-	for(i=0; i<GTD_SIZE_PER_BANK; i++)
-	{
-		new_vpn = assign_new_map_write_vpn(bank);
-		save_pm++;
-		nand_page_program(bank,
-				new_vpn / PAGES_PER_BLK,
-				new_vpn % PAGES_PER_BLK,
-				GC_BUF(i));
-		gtd[bank][i] = new_vpn;
-	}
-}
-
 static UINT32 assign_new_map_write_vpn(UINT32 const bank)
 {
 	ASSERT(bank < NUM_BANKS);
@@ -1447,21 +1148,15 @@ static UINT32 assign_new_map_write_vpn(UINT32 const bank)
 	UINT32 vblock;
 	UINT32 new_vblock;
 
-
 	write_vpn = get_cur_map_write_vpn(bank);
 	vblock    = write_vpn / PAGES_PER_BLK;
 
-	// uart_printf("assign new map vpn at bank %d vblock 0x%x",bank, vblock);
-
-	// NOTE: if next new write page's offset is
-	// the last page offset of vblock (i.e. PAGES_PER_BLK - 1),
 	if ((write_vpn % PAGES_PER_BLK) == (PAGES_PER_BLK - 1))
 	{
 		if(vblock == map_blk[bank][0])
 		{
 			new_vblock = map_blk[bank][1];
 		}
-//		else if(vblock == map_blk[bank][1])
 		else
 		{
 			new_vblock = map_blk[bank][0];
