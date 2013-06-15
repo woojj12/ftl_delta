@@ -113,8 +113,6 @@ UINT32 map_blk[NUM_BANKS][2];
 #define set_lpn(bank, page_num, lpn)  (g_misc_meta[bank].lpn_list_of_cur_vblock[page_num] = lpn)
 #define get_lpn(bank, page_num)       (g_misc_meta[bank].lpn_list_of_cur_vblock[page_num])
 #define get_miscblk_vpn(bank)         (g_misc_meta[bank].cur_miscblk_vpn)
-#define CHECK_LPAGE(lpn)              ASSERT((lpn) < NUM_LPAGES)
-#define CHECK_VPAGE(vpn)              ASSERT((vpn) < (VBLKS_PER_BANK * PAGES_PER_BLK))
 #define get_cur_map_write_vpn(bank)       (g_misc_meta[bank].cur_map_write_vpn)
 #define set_new_map_write_vpn(bank, vpn)  (g_misc_meta[bank].cur_map_write_vpn = vpn)
 
@@ -122,7 +120,6 @@ UINT32 map_blk[NUM_BANKS][2];
 // FTL internal function prototype
 //----------------------------------
 static void   format(void);
-static void   write_format_mark(void);
 static void   sanity_check(void);
 static void   init_metadata_sram(void);
 static void   write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const num_sectors);
@@ -295,11 +292,6 @@ void ftl_open(void)
 		format();
 		uart_print("end format");
 	}
-	// load FTL metadata
-	else
-	{
-		load_metadata();
-	}
 	g_ftl_read_buf_id = 0;
 	g_ftl_write_buf_id = 0;
 
@@ -377,7 +369,6 @@ void ftl_read(UINT32 const lba, UINT32 const num_sectors)
 		}
 		bank = get_num_bank(lpn); // page striping
 		vpn  = get_vpn(lpn);
-		CHECK_VPAGE(vpn);
 
 		if (vpn != NULL)
 		{
@@ -487,9 +478,6 @@ void ftl_write(UINT32 const lba, UINT32 const num_sectors)
 static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const num_sectors)
 {
 	write_p++;
-	CHECK_LPAGE(lpn);
-	ASSERT(sect_offset < SECTORS_PER_PAGE);
-	ASSERT(num_sectors > 0 && num_sectors <= SECTORS_PER_PAGE);
 
 	UINT32 bank, old_vpn, new_vpn;
 	UINT32 vblock, page_num, page_offset, column_cnt;
@@ -500,7 +488,6 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
 
 	new_vpn  = assign_new_write_vpn(bank);
 	old_vpn  = get_vpn(lpn);
-	CHECK_VPAGE (old_vpn);
 	if (old_vpn != NULL)
 	{
 		vblock   = old_vpn / PAGES_PER_BLK;
@@ -575,12 +562,8 @@ static void write_page(UINT32 const lpn, UINT32 const sect_offset, UINT32 const 
 			mem_set_dram(WR_BUF_PTR(g_ftl_write_buf_id) + rhole_base, 0, BYTES_PER_PAGE - rhole_base);
 		}
 	}
-
-	CHECK_VPAGE (new_vpn);
 	vblock   = new_vpn / PAGES_PER_BLK;
 	page_num = new_vpn % PAGES_PER_BLK;
-
-	ASSERT(get_vcount(bank,vblock) < (PAGES_PER_BLK - 1));
 
 	// write new data (make sure that the new data is ready in the write buffer frame)
 	// (c.f FO_B_SATA_W flag in flash.h)
@@ -605,7 +588,6 @@ static UINT32 get_vpn(UINT32 const lpn)
 	{
 		get_v++;
 	}
-	CHECK_LPAGE(lpn);
 	UINT32 index;
 	for(index = 0; index < CMT_SIZE; index++)
 	{
@@ -739,8 +721,6 @@ static void evict_mapping(void)
 static void set_vpn(UINT32 const lpn, UINT32 const vpn)
 {
 	set_v++;
-	CHECK_LPAGE(lpn);
-	ASSERT(vpn >= (META_BLKS_PER_BANK * PAGES_PER_BLK) && vpn < (VBLKS_PER_BANK * PAGES_PER_BLK));
 
 	UINT32 index;
 	for(index = 0; index < CMT_SIZE; index++)
@@ -775,27 +755,17 @@ static UINT32 get_vcount(UINT32 const bank, UINT32 const vblock)
 
 	UINT32 vcount;
 
-	ASSERT(bank < NUM_BANKS);
-	ASSERT((vblock >= META_BLKS_PER_BANK) && (vblock < VBLKS_PER_BANK));
-
 	vcount = read_dram_16(VCOUNT_ADDR + (((bank * VBLKS_PER_BANK) + vblock) * sizeof(UINT16)));
-	ASSERT((vcount < PAGES_PER_BLK) || (vcount == VC_MAX));
 
 	return vcount;
 }
 // set valid page count of vblock
 static void set_vcount(UINT32 const bank, UINT32 const vblock, UINT32 const vcount)
 {
-	ASSERT(bank < NUM_BANKS);
-	ASSERT((vblock >= META_BLKS_PER_BANK) && (vblock < VBLKS_PER_BANK));
-	ASSERT((vcount < PAGES_PER_BLK) || (vcount == VC_MAX));
-
 	write_dram_16(VCOUNT_ADDR + (((bank * VBLKS_PER_BANK) + vblock) * sizeof(UINT16)), vcount);
 }
 static UINT32 assign_new_write_vpn(UINT32 const bank)
 {
-	ASSERT(bank < NUM_BANKS);
-
 	UINT32 write_vpn;
 	UINT32 vblock;
 
@@ -836,7 +806,6 @@ static UINT32 assign_new_write_vpn(UINT32 const bank)
 				uart_printf(" vblock == VBLKS_PER_BANK");
 				goto GC;
 			}
-			ASSERT(vblock != VBLKS_PER_BANK);
 		}while (get_vcount(bank, vblock) == VC_MAX);
 	}
 	// write page -> next block
@@ -872,7 +841,6 @@ static void garbage_collection(UINT32 const bank)
 	SET_GC;
 
 	gc++;
-	ASSERT(bank < NUM_BANKS);
 	//    g_ftl_statistics[bank].gc_cnt++;
 
 	UINT32 src_lpn;
@@ -887,12 +855,6 @@ static void garbage_collection(UINT32 const bank)
 	gc_vblock = get_gc_vblock(bank);
 	free_vpn  = gc_vblock * PAGES_PER_BLK;
 
-	ASSERT(vt_vblock != gc_vblock);
-	ASSERT(vt_vblock >= META_BLKS_PER_BANK && vt_vblock < VBLKS_PER_BANK);
-	ASSERT(vcount < (PAGES_PER_BLK - 1));
-	ASSERT(get_vcount(bank, gc_vblock) == VC_MAX);
-	ASSERT(!is_bad_block(bank, gc_vblock));
-
 	// 1. load p2l list from last page offset of victim block (4B x PAGES_PER_BLK)
 	// fix minor bug
 	misc_w++;
@@ -905,7 +867,6 @@ static void garbage_collection(UINT32 const bank)
 	{
 		// get lpn of victim block from a read lpn list
 		src_lpn = get_lpn(bank, src_page);
-		CHECK_VPAGE(get_vpn(src_lpn));
 
 		// determine whether the page is valid or not
 		if (get_vpn(src_lpn) !=
@@ -914,8 +875,6 @@ static void garbage_collection(UINT32 const bank)
 			// invalid page
 			continue;
 		}
-		ASSERT(get_lpn(bank, src_page) != INVALID);
-		CHECK_LPAGE(src_lpn);
 		// if the page is valid,
 		// then do copy-back op. to free space
 		gc_prog++;
@@ -924,24 +883,15 @@ static void garbage_collection(UINT32 const bank)
 				src_page,
 				free_vpn / PAGES_PER_BLK,
 				free_vpn % PAGES_PER_BLK);
-		ASSERT((free_vpn / PAGES_PER_BLK) == gc_vblock);
 		// update metadata
 		set_vpn(src_lpn, free_vpn);
 		set_lpn(bank, (free_vpn % PAGES_PER_BLK), src_lpn);
 
 		free_vpn++;
 	}
-#if OPTION_ENABLE_ASSERT
-	if (vcount == 0)
-	{
-		ASSERT(free_vpn == (gc_vblock * PAGES_PER_BLK));
-	}
-#endif
 	// 3. erase victim block
 	erase++;
 	nand_block_erase(bank, vt_vblock);
-	ASSERT((free_vpn % PAGES_PER_BLK) < (PAGES_PER_BLK - 2));
-	ASSERT((free_vpn % PAGES_PER_BLK == vcount));
 
 	// 4. update metadata
 	//set_vcount(bank, vt_vblock, VC_MAX);
@@ -968,10 +918,6 @@ static UINT32 get_vt_vblock(UINT32 const bank)
 			sizeof(UINT16),
 			VBLKS_PER_BANK,
 			MU_CMD_SEARCH_MIN_DRAM);
-
-	ASSERT(is_bad_block(bank, vblock) == FALSE);
-	ASSERT(vblock >= META_BLKS_PER_BANK && vblock < VBLKS_PER_BANK);
-	ASSERT(get_vcount(bank, vblock) < (PAGES_PER_BLK - 1));
 
 	return vblock;
 }
@@ -1019,8 +965,6 @@ static void format(void)
 	// flush metadata to NAND
 	//    logging_pmap_table();
 	//    logging_misc_metadata();
-
-	write_format_mark();
 	led(1);
 	uart_print("format complete");
 }
